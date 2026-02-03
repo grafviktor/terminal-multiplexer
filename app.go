@@ -9,7 +9,7 @@ import (
 
 func main() {
 	sm := manager.New()
-	sm.Create([]string{"/bin/bash"})
+	sm.Create([]string{"bash", "-c", "while true; do date; sleep 1 ;done"})
 	sm.Create([]string{"/bin/zsh"})
 
 	// Put terminal into raw mode

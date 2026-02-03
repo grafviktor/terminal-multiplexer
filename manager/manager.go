@@ -1,6 +1,7 @@
 package manager
 
 import (
+	"bytes"
 	"log"
 	"os"
 	"os/exec"
@@ -27,7 +28,7 @@ func New() *sessionManager {
 	}
 
 	sm.runWindowSizeWatcher()
-	sm.runStdInReader()
+	sm.runUserStdInReader()
 
 	return sm
 }
@@ -61,7 +62,9 @@ func (sm *sessionManager) Create(argv []string) {
 
 		s := &PtySession{Cmd: cmd, Master: master, ID: sm.nextSessionID}
 		sm.nextSessionID++
-		sm.run(s)
+		sm.sessions = append(sm.sessions, s)
+		sm.selectSession(s)
+		sm.runSessionStdOutReader(s)
 		ready <- struct{}{} // notify session is ready
 
 		err = s.Cmd.Wait()
@@ -75,27 +78,24 @@ func (sm *sessionManager) Create(argv []string) {
 	<-ready
 }
 
-func (sm *sessionManager) run(s Session) {
+func (sm *sessionManager) selectSession(s Session) {
 	sm.mu.Lock()
-	sm.sessions = append(sm.sessions, s)
 	sm.activeSession = s
 	sm.mu.Unlock()
 	sm.clearPtyScreen()
+}
 
+func (sm *sessionManager) runSessionStdOutReader(s Session) {
 	go func() {
 		tmp := make([]byte, 4096)
 
 		for {
-			// n, err := s.Master.Read(tmp)
 			n, err := s.Read(tmp)
 			if err != nil {
 				return
 			}
 
-			data := append([]byte(nil), tmp[:n]...)
-			// sm.handleOutput(s, data)
-
-			// s.append(data)
+			data := bytes.Clone(tmp[:n])
 			s.Write(data)
 
 			sm.mu.Lock()
@@ -127,10 +127,24 @@ func (sm *sessionManager) next() {
 		}
 	}
 
-	sm.mu.Lock()
-	sm.activeSession = sm.sessions[currentSessionID]
-	sm.mu.Unlock()
-	sm.clearPtyScreen()
+	sm.selectSession(sm.sessions[currentSessionID])
+}
+
+func (sm *sessionManager) runUserStdInReader() {
+	go func() {
+		buf := make([]byte, 1024)
+
+		for {
+			n, err := os.Stdin.Read(buf)
+			if err != nil {
+				return
+			}
+
+			// If Ctrl-A is detected, switch to command mode
+			sm.parseInput(buf[:n])
+			// else send to active session
+		}
+	}()
 }
 
 func (sm *sessionManager) parseInput(data []byte) {
@@ -145,56 +159,15 @@ func (sm *sessionManager) parseInput(data []byte) {
 	}
 
 	sm.mu.Lock()
-	currentSession := sm.activeSession
+	activeSession := sm.activeSession
 	sm.mu.Unlock()
 
-	if len(out) > 0 && currentSession != nil {
-		// _, _ = currentSession.Master.Write(out)
-		_, _ = currentSession.Write(out)
+	if len(out) > 0 && activeSession != nil {
+		_, _ = activeSession.(*PtySession).Master.Write(out)
 	}
 }
 
-func (sm *sessionManager) clearPtyScreen() {
-	if ps, ok := sm.activeSession.(*PtySession); ok {
-		ps.ClearAndRedraw()
-	}
-	// pty.InheritSize(os.Stdin, sm.activeSession.Master)
-
-	// redraw terminal (optional clear)
-	// _, _ = os.Stdout.Write([]byte("\x1b[2J\x1b[H"))
-
-	// replay buffer
-	// _, _ = os.Stdout.Write(sm.activeSession.buf.Bytes())
-	// _, _ = os.Stdout.Write(sm.activeSession.buf.Bytes())
-}
-
-func (sm *sessionManager) runWindowSizeWatcher() {
-	// Propagate resizes
-	ch := make(chan os.Signal, 1)
-	signal.Notify(ch, syscall.SIGWINCH)
-	go func() {
-		for range ch {
-			if ps, ok := sm.activeSession.(*PtySession); ok {
-				ps.ClearAndRedraw()
-			}
-		}
-	}()
-}
-
-func (sm *sessionManager) runStdInReader() {
-	go func() {
-		buf := make([]byte, 1024)
-
-		for {
-			n, err := os.Stdin.Read(buf)
-			if err != nil {
-				return
-			}
-
-			sm.parseInput(buf[:n])
-		}
-	}()
-}
+/* utils */
 
 func (sm *sessionManager) cleanup(s Session) {
 	sm.mu.Lock()
@@ -214,4 +187,23 @@ func (sm *sessionManager) cleanup(s Session) {
 
 func (sm *sessionManager) Wait() {
 	sm.sessionWg.Wait()
+}
+
+func (sm *sessionManager) clearPtyScreen() {
+	if ps, ok := sm.activeSession.(*PtySession); ok {
+		ps.ClearAndRedraw()
+	}
+}
+
+func (sm *sessionManager) runWindowSizeWatcher() {
+	// Propagate resizes
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, syscall.SIGWINCH)
+	go func() {
+		for range ch {
+			if ps, ok := sm.activeSession.(*PtySession); ok {
+				ps.ClearAndRedraw()
+			}
+		}
+	}()
 }
