@@ -12,6 +12,8 @@ import (
 	"github.com/creack/pty"
 )
 
+const hotKey = 0x01 // Ctrl-A
+
 type sessionManager struct {
 	nextSessionID int
 	sessionWg     sync.WaitGroup
@@ -28,53 +30,53 @@ func New() *sessionManager {
 	}
 
 	sm.runWindowSizeWatcher()
-	sm.runUserStdInReader()
+	sm.runInputReader()
 
 	return sm
 }
 
 func (sm *sessionManager) Create(argv []string) {
+	var err error
+
+	// 1. Open PTY master and slave
+	master, slave, err := pty.Open()
+	if err != nil {
+		log.Printf("failed to start session: %v", err)
+		return
+	}
+	defer slave.Close()
+
+	// 2. Fork
+	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0}
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = slave, slave, slave
+
+	if err = cmd.Start(); err != nil {
+		log.Printf("failed to start session: %v", err)
+		master.Close()
+		return
+	}
+
+	s := &PtySession{Cmd: cmd, Master: master, ID: sm.nextSessionID}
+	sm.nextSessionID++
+	sm.sessions = append(sm.sessions, s)
+	sm.selectSession(s)
+	sm.runSessionOutputReader(s)
+
 	ready := make(chan any, 1)
-	// Do i need a separate thread here?
 	sm.sessionWg.Go(func() {
-		var err error
-
-		// 1. Open PTY master and slave
-		master, slave, err := pty.Open()
-		if err != nil {
-			log.Printf("failed to start session: %v", err)
-			return
-		}
-		defer master.Close()
-
-		// 2. Fork
-		cmd := exec.Command(argv[0], argv[1:]...)
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0}
-		cmd.Stdin, cmd.Stdout, cmd.Stderr = slave, slave, slave
-
-		if err := cmd.Start(); err != nil {
-			_ = master.Close()
-			_ = slave.Close()
-			log.Printf("failed to start session: %v", err)
-			return
-		}
-		_ = slave.Close()
-
-		s := &PtySession{Cmd: cmd, Master: master, ID: sm.nextSessionID}
-		sm.nextSessionID++
-		sm.sessions = append(sm.sessions, s)
-		sm.selectSession(s)
-		sm.runSessionStdOutReader(s)
-		ready <- struct{}{} // notify session is ready
-
+		ready <- struct{}{}
 		err = s.Cmd.Wait()
 		if err != nil {
 			log.Printf("session %d ended with error: %v", s.ID, err)
 		}
-
-		sm.cleanup(s)
+		defer func() {
+			master.Close()
+			sm.close(s)
+		}()
 	})
 
+	// Wait goroutine to start
 	<-ready
 }
 
@@ -85,7 +87,7 @@ func (sm *sessionManager) selectSession(s Session) {
 	sm.clearPtyScreen()
 }
 
-func (sm *sessionManager) runSessionStdOutReader(s Session) {
+func (sm *sessionManager) runSessionOutputReader(s Session) {
 	go func() {
 		tmp := make([]byte, 4096)
 
@@ -96,7 +98,7 @@ func (sm *sessionManager) runSessionStdOutReader(s Session) {
 			}
 
 			data := bytes.Clone(tmp[:n])
-			s.Write(data)
+			s.WriteToBuffer(data)
 
 			sm.mu.Lock()
 			if sm.activeSession == s {
@@ -130,7 +132,7 @@ func (sm *sessionManager) next() {
 	sm.selectSession(sm.sessions[currentSessionID])
 }
 
-func (sm *sessionManager) runUserStdInReader() {
+func (sm *sessionManager) runInputReader() {
 	go func() {
 		buf := make([]byte, 1024)
 
@@ -140,9 +142,7 @@ func (sm *sessionManager) runUserStdInReader() {
 				return
 			}
 
-			// If Ctrl-A is detected, switch to command mode
 			sm.parseInput(buf[:n])
-			// else send to active session
 		}
 	}()
 }
@@ -151,9 +151,11 @@ func (sm *sessionManager) parseInput(data []byte) {
 	out := data[:0]
 
 	for _, b := range data {
-		if b == 0x01 {
-			sm.next()
+		if sm.isHotkey(rune(b)) {
+			// If Ctrl-A is detected, switch to command mode
+			sm.handleHotkey(rune(b))
 		} else {
+			// else send to active session
 			out = append(out, b)
 		}
 	}
@@ -162,14 +164,24 @@ func (sm *sessionManager) parseInput(data []byte) {
 	activeSession := sm.activeSession
 	sm.mu.Unlock()
 
-	if len(out) > 0 && activeSession != nil {
-		_, _ = activeSession.(*PtySession).Master.Write(out)
+	if len(out) > 0 {
+		if s, ok := activeSession.(*PtySession); ok {
+			s.Write(out)
+		}
 	}
 }
 
-/* utils */
+func (sm *sessionManager) isHotkey(char rune) bool {
+	return char == hotKey
+}
 
-func (sm *sessionManager) cleanup(s Session) {
+func (sm *sessionManager) handleHotkey(hotKey rune) {
+	if hotKey == 0x01 {
+		sm.next()
+	}
+}
+
+func (sm *sessionManager) close(s Session) {
 	sm.mu.Lock()
 	for i, sess := range sm.sessions {
 		if sess == s {

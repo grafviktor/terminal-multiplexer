@@ -10,6 +10,8 @@ import (
 
 var _ Session = (*PtySession)(nil)
 
+const maxBufferHistory = 1024 * 1024 // 1MB
+
 type PtySession struct {
 	Cmd    *exec.Cmd
 	Master *os.File
@@ -21,9 +23,12 @@ func (s *PtySession) Read(p []byte) (int, error) {
 	return s.Master.Read(p)
 }
 
-const maxBufferHistory = 1024 * 1024 // 1MB
 func (s *PtySession) Write(p []byte) (int, error) {
-	// Where is this ring buffer used?
+	return s.Master.Write(p)
+}
+
+func (s *PtySession) WriteToBuffer(p []byte) (int, error) {
+	// This is used in runSessionOutputReader. Once the session becomes active, we write buffer to stdout
 	if s.buf.Len()+len(p) > maxBufferHistory {
 		// drop oldest
 		excess := s.buf.Len() + len(p) - maxBufferHistory
