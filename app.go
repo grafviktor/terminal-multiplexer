@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"pty-wrapper/manager"
 
@@ -20,4 +21,5 @@ func main() {
 
 	// Wait for all sessions to finish
 	sm.Wait()
+	fmt.Println("All sessions finished. Exiting.")
 }

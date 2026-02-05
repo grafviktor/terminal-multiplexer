@@ -29,10 +29,17 @@ func New() *sessionManager {
 		sessionWg: sync.WaitGroup{},
 	}
 
+	sm.createServicePane()
 	sm.runWindowSizeWatcher()
 	sm.runInputReader()
 
 	return sm
+}
+
+func (sm *sessionManager) createServicePane() {
+	p := &StatusSession{}
+	sm.sessions = append(sm.sessions, p)
+	sm.selectSession(p)
 }
 
 func (sm *sessionManager) Create(argv []string) {
@@ -84,6 +91,11 @@ func (sm *sessionManager) selectSession(s Session) {
 	sm.mu.Lock()
 	sm.activeSession = s
 	sm.mu.Unlock()
+
+	if ss, ok := s.(*StatusSession); ok {
+		ss.Refresh(len(sm.sessions) - 1) // exclude status session
+	}
+
 	sm.clearPtyScreen()
 }
 
