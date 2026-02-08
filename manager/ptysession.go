@@ -3,7 +3,6 @@ package manager
 import (
 	"bytes"
 	"os"
-	"os/exec"
 
 	"github.com/creack/pty"
 )
@@ -13,10 +12,10 @@ var _ Session = (*PtySession)(nil)
 const maxBufferHistory = 1024 * 1024 // 1MB
 
 type PtySession struct {
-	Cmd    *exec.Cmd
 	Master *os.File
-	ID     int
-	buf    bytes.Buffer
+	// Term   vt10x.Terminal
+	ID  int
+	buf bytes.Buffer
 }
 
 func (s *PtySession) Read(p []byte) (int, error) {
@@ -41,4 +40,5 @@ func (s *PtySession) ClearAndRedraw() {
 	pty.InheritSize(os.Stdin, s.Master)
 	os.Stdout.Write([]byte("\x1b[2J\x1b[H"))
 	os.Stdout.Write(s.buf.Bytes())
+	// s.Term.Write(s.buf.Bytes())
 }

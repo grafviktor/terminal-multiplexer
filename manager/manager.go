@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	"github.com/creack/pty"
+	// "github.com/hinshun/vt10x"
 )
 
 const hotKey = 0x01 // Ctrl-A
@@ -44,27 +45,17 @@ func (sm *sessionManager) createServicePane() {
 
 func (sm *sessionManager) Create(argv []string) {
 	var err error
-
-	// 1. Open PTY master and slave
-	master, slave, err := pty.Open()
+	cmd := exec.Command(argv[0], argv[1:]...)
+	ptmx, err := pty.Start(cmd)
 	if err != nil {
 		log.Printf("failed to start session: %v", err)
 		return
 	}
-	defer slave.Close()
 
-	// 2. Fork
-	cmd := exec.Command(argv[0], argv[1:]...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0}
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = slave, slave, slave
+	// term := vt10x.New(vt10x.WithSize(80, 24))
+	// s := &PtySession{Master: ptmx, Term: term, ID: sm.nextSessionID}
 
-	if err = cmd.Start(); err != nil {
-		log.Printf("failed to start session: %v", err)
-		master.Close()
-		return
-	}
-
-	s := &PtySession{Cmd: cmd, Master: master, ID: sm.nextSessionID}
+	s := &PtySession{Master: ptmx, ID: sm.nextSessionID}
 	sm.nextSessionID++
 	sm.sessions = append(sm.sessions, s)
 	sm.selectSession(s)
@@ -73,12 +64,12 @@ func (sm *sessionManager) Create(argv []string) {
 	ready := make(chan any, 1)
 	sm.sessionWg.Go(func() {
 		ready <- struct{}{}
-		err = s.Cmd.Wait()
+		err = cmd.Wait()
 		if err != nil {
 			log.Printf("session %d ended with error: %v", s.ID, err)
 		}
 		defer func() {
-			master.Close()
+			ptmx.Close()
 			sm.close(s)
 		}()
 	})
