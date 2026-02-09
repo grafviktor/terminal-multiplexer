@@ -12,6 +12,6 @@ shell    → PTY → vt10x → renderer → real terminal
 
 creack/pty = process + pseudo-terminal
 
-[vt10x](https://github.com/hinshun/vt10x) = understands ANSI + screen state
+[vt10x](https://github.com/hinshun/vt10x) maintains an in-memory screen state: rows/cols, cursor position, per-cell glyphs (char + fg/bg + mode bits), title, etc.
 
-you = read from PTY, feed vt10x, render
+General ides: read from PTY, feed vt10x, render

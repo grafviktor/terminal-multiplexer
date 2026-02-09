@@ -10,7 +10,7 @@ import (
 	"syscall"
 
 	"github.com/creack/pty"
-	// "github.com/hinshun/vt10x"
+	"github.com/hinshun/vt10x"
 )
 
 const hotKey = 0x01 // Ctrl-A
@@ -22,17 +22,20 @@ type sessionManager struct {
 	mu            sync.Mutex
 	activeSession Session
 	sessions      []Session
+	uiDirty       chan struct{}
 }
 
 func New() *sessionManager {
 	sm := &sessionManager{
 		sessions:  []Session{},
 		sessionWg: sync.WaitGroup{},
+		uiDirty:   make(chan struct{}, 1),
 	}
 
 	sm.createServicePane()
 	sm.runWindowSizeWatcher()
 	sm.runInputReader()
+	sm.runRenderer()
 
 	return sm
 }
@@ -52,10 +55,11 @@ func (sm *sessionManager) Create(argv []string) {
 		return
 	}
 
-	// term := vt10x.New(vt10x.WithSize(80, 24))
-	// s := &PtySession{Master: ptmx, Term: term, ID: sm.nextSessionID}
-
-	s := &PtySession{Master: ptmx, ID: sm.nextSessionID}
+	// Create a new vt10x terminal and bind it to session's. It'll
+	// be used to contain internal state of the terminal.
+	rows, cols, _ := pty.Getsize(os.Stdin)
+	term := vt10x.New(vt10x.WithSize(cols, rows))
+	s := &PtySession{Master: ptmx, Term: term, ID: sm.nextSessionID}
 	sm.nextSessionID++
 	sm.sessions = append(sm.sessions, s)
 	sm.selectSession(s)
@@ -101,13 +105,10 @@ func (sm *sessionManager) runSessionOutputReader(s Session) {
 			}
 
 			data := bytes.Clone(tmp[:n])
-			s.WriteToBuffer(data)
-
-			sm.mu.Lock()
-			if sm.activeSession == s {
-				_, _ = os.Stdout.Write(data)
+			if ps, ok := s.(*PtySession); ok {
+				ps.Term.Write(data)
 			}
-			sm.mu.Unlock()
+			sm.uiDirty <- struct{}{}
 		}
 	}()
 }
@@ -133,6 +134,7 @@ func (sm *sessionManager) next() {
 	}
 
 	sm.selectSession(sm.sessions[currentSessionID])
+	sm.uiDirty <- struct{}{}
 }
 
 func (sm *sessionManager) runInputReader() {
@@ -146,6 +148,7 @@ func (sm *sessionManager) runInputReader() {
 			}
 
 			sm.parseInput(buf[:n])
+			sm.uiDirty <- struct{}{}
 		}
 	}()
 }
@@ -169,7 +172,7 @@ func (sm *sessionManager) parseInput(data []byte) {
 
 	if len(out) > 0 {
 		if s, ok := activeSession.(*PtySession); ok {
-			s.Write(out)
+			s.Master.Write(out)
 		}
 	}
 }
@@ -206,18 +209,43 @@ func (sm *sessionManager) Wait() {
 
 func (sm *sessionManager) clearPtyScreen() {
 	if ps, ok := sm.activeSession.(*PtySession); ok {
-		ps.ClearAndRedraw()
+		ps.Render()
 	}
 }
 
 func (sm *sessionManager) runWindowSizeWatcher() {
-	// Propagate resizes
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, syscall.SIGWINCH)
 	go func() {
 		for range ch {
 			if ps, ok := sm.activeSession.(*PtySession); ok {
-				ps.ClearAndRedraw()
+				// That's very important to forward the size of the terminal from the stdin
+				// to ps.Master which generates the output. Otherwise ncurses apps
+				// will not be rendered correctly.
+				pty.InheritSize(os.Stdin, ps.Master)
+				// Then we set size to vt10x to render the terminal correctly.
+				rows, cols, err := pty.Getsize(os.Stdin)
+				if err == nil {
+					ps.Term.Resize(cols, rows) // note: vt10x wants cols, then rows
+				}
+				ps.Render()
+			}
+		}
+	}()
+}
+
+func (sm *sessionManager) runRenderer() {
+	go func() {
+		for {
+			select {
+				case <-sm.uiDirty:
+					sm.mu.Lock()
+					if ps, ok := sm.activeSession.(*PtySession); ok {
+						ps.Render()
+					}
+					sm.mu.Unlock()
+				default:
+					// time.Sleep(16 * time.Millisecond)
 			}
 		}
 	}()
