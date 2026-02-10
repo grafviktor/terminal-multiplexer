@@ -32,43 +32,16 @@ func (s *PtySession) Write(p []byte) (int, error) {
 
 func (s *PtySession) SetSize(cols, rows int) error {
 	// That's very important to forward the size of the terminal from the stdin
-	// to ps.Master which generates the output. Otherwise ncurses apps
+	// to ps.Ptmx which generates the output. Otherwise ncurses apps
 	// will not be rendered correctly.
-	// err := pty.InheritSize(t, s.Ptmx)
-
 	err := pty.Setsize(s.Ptmx, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)})
 	if err != nil {
 		return err
 	}
 
-	// Then we set size to vt10x to render the terminal correctly.
-	// rows, cols, err := pty.Getsize(os.Stdin)
-	// if err != nil {
-	// 	return err
-	// }
-
 	s.Term.Resize(cols, rows) // note: vt10x wants cols, then rows
 	return nil
 }
-
-// func (s *PtySession) InheritSize(t *os.File) error {
-// 	// That's very important to forward the size of the terminal from the stdin
-// 	// to ps.Master which generates the output. Otherwise ncurses apps
-// 	// will not be rendered correctly.
-// 	err := pty.InheritSize(t, s.Ptmx)
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	// Then we set size to vt10x to render the terminal correctly.
-// 	rows, cols, err := pty.Getsize(os.Stdin)
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	s.Term.Resize(cols, rows) // note: vt10x wants cols, then rows
-// 	return nil
-// }
 
 func (s *PtySession) Render() {
 	// This always clears the screen and moves the cursor to the home position.

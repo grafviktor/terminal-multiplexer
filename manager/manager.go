@@ -54,8 +54,7 @@ func (sm *sessionManager) Create(argv []string) (Session, error) {
 		return nil, err
 	}
 
-	term := vt10x.New()
-	session := &PtySession{Ptmx: ptmx, Term: term, ID: sm.nextSessionID}
+	session := &PtySession{Ptmx: ptmx, Term: vt10x.New(), ID: sm.nextSessionID}
 	rows, cols := sm.getSize()
 	session.SetSize(cols, rows)
 	sm.nextSessionID++

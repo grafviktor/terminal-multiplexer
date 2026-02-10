@@ -10,9 +10,11 @@ import (
 var _ Session = (*StatusSession)(nil)
 
 type StatusSession struct {
-	ID  int
-	mu  sync.Mutex
-	buf bytes.Buffer
+	ID   int
+	mu   sync.Mutex
+	buf  bytes.Buffer
+	cols int
+	rows int
 }
 
 func (s *StatusSession) Refresh(sessionInfo SessionInfo) {
@@ -20,8 +22,8 @@ func (s *StatusSession) Refresh(sessionInfo SessionInfo) {
 	// Explicit cariage return is required to move cursor to the beginning of the line after clearing the screen
 	fmt.Fprintf(&s.buf, "Control Pane\n")
 	fmt.Fprintf(&s.buf, "\rNumber of sessions: %d\n\r", sessionInfo.sessionCount)
-	fmt.Fprintf(&s.buf, "\rHeight: %d\n\r", sessionInfo.height)
-	fmt.Fprintf(&s.buf, "\rWidth: %d\n\r", sessionInfo.width)
+	fmt.Fprintf(&s.buf, "\rHeight: %d\n\r", s.rows)
+	fmt.Fprintf(&s.buf, "\rWidth: %d\n\r", s.cols)
 	s.Write(s.buf.Bytes())
 }
 
@@ -34,13 +36,16 @@ func (s *StatusSession) WriteToBuffer(p []byte) (int, error) {
 }
 
 func (s *StatusSession) Write(p []byte) (int, error) {
-	// os.Stdout.Write([]byte("\x1b[2J\x1b[H"))
 	os.Stdout.Write([]byte("\x1b[2J\x1b[H"))
 	return os.Stdout.Write(s.buf.Bytes())
 }
 
-func (s *StatusSession) Render() {}
+func (s *StatusSession) Render() {
+	fmt.Println("render")
+}
 
 func (s *StatusSession) SetSize(cols, rows int) error {
+	s.cols = cols
+	s.rows = rows
 	return nil
 }
