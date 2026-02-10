@@ -22,7 +22,6 @@ func (s *StatusSession) Refresh(sessionInfo SessionInfo) {
 	fmt.Fprintf(&s.buf, "\rNumber of sessions: %d\n\r", sessionInfo.sessionCount)
 	fmt.Fprintf(&s.buf, "\rHeight: %d\n\r", sessionInfo.height)
 	fmt.Fprintf(&s.buf, "\rWidth: %d\n\r", sessionInfo.width)
-	fmt.Fprintf(&s.buf, "\r\n")
 	s.Write(s.buf.Bytes())
 }
 
@@ -42,6 +41,6 @@ func (s *StatusSession) Write(p []byte) (int, error) {
 
 func (s *StatusSession) Render() {}
 
-func (s *StatusSession) InheritSize(t *os.File) error {
+func (s *StatusSession) SetSize(cols, rows int) error {
 	return nil
 }

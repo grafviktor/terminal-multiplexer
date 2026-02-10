@@ -2,6 +2,7 @@ package manager
 
 import (
 	"bytes"
+	"fmt"
 	"log"
 	"os"
 	"os/exec"
@@ -53,19 +54,10 @@ func (sm *sessionManager) Create(argv []string) (Session, error) {
 		return nil, err
 	}
 
-	// Create a new vt10x terminal and bind it to session's. It'll
-	// be used to contain internal state of the terminal.
-	rows, cols, err := pty.Getsize(os.Stdin)
-	// Can also use term.GetSize(int(os.Stdout.Fd())) to get the size of the terminal:
-	// rows, cols, err_ := term.GetSize(int(os.Stdout.Fd()))
-	if rows == 0 || cols == 0 || err != nil {
-		log.Printf("failed to get size of the terminal: %v\n", err)
-		rows = 20
-		cols = 40
-	}
-
-	term := vt10x.New(vt10x.WithSize(cols, rows))
-	session := &PtySession{Master: ptmx, Term: term, ID: sm.nextSessionID}
+	term := vt10x.New()
+	session := &PtySession{Ptmx: ptmx, Term: term, ID: sm.nextSessionID}
+	rows, cols := sm.getSize()
+	session.SetSize(cols, rows)
 	sm.nextSessionID++
 	sm.sessions = append(sm.sessions, session)
 	sm.runStdOutReader(session)
@@ -94,8 +86,8 @@ func (sm *sessionManager) Select(s Session) {
 			w, h := ps.Term.Size()
 			sessionInfo := SessionInfo{
 				sessionCount: len(sm.sessions) - 1,
-				width: w,
-				height: h,
+				width:        w,
+				height:       h,
 			}
 			ss.Refresh(sessionInfo) // exclude status session
 		}
@@ -105,7 +97,7 @@ func (sm *sessionManager) Select(s Session) {
 	sm.activeSession = s
 	sm.mu.Unlock()
 
-	sm.clearPtyScreen()
+	sm.render()
 }
 
 func (sm *sessionManager) runStdInReader() {
@@ -143,53 +135,47 @@ func (sm *sessionManager) runStdOutReader(s Session) {
 	}()
 }
 
-// Does not handle session size change
-// func (sm *sessionManager) runWindowSizeWatcher() {
-// 	ch := make(chan os.Signal, 1)
-// 	signal.Notify(ch, syscall.SIGWINCH)
-// 	go func() {
-// 		for range ch {
-// 			err := sm.activeSession.InheritSize(os.Stdin)
-// 			if err != nil {
-// 				log.Printf("failed to inherit size: %v", err)
-// 			}
-// 			sm.activeSession.Render()
-// 		}
-// 	}()
-// }
-
 func (sm *sessionManager) runWindowSizeWatcher() {
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, syscall.SIGWINCH)
 	go func() {
 		for range ch {
-			if ps, ok := sm.activeSession.(*PtySession); ok {
-				// That's very important to forward the size of the terminal from the stdin
-				// to ps.Master which generates the output. Otherwise ncurses apps
-				// will not be rendered correctly.
-				pty.InheritSize(os.Stdin, ps.Master)
-				// Then we set size to vt10x to render the terminal correctly.
-				rows, cols, err := pty.Getsize(os.Stdin)
-				if err == nil {
-					ps.Term.Resize(cols, rows) // note: vt10x wants cols, then rows
-				}
-				ps.Render()
+			for _, s := range sm.sessions {
+				rows, cols := sm.getSize()
+				s.SetSize(cols, rows)
 			}
+
+			sm.activeSession.Render()
 		}
 	}()
 }
 
 func (sm *sessionManager) runRenderer() {
+	// full channel drain (latest-wins, burst-safe)
 	go func() {
 		for {
 			// Wait for something to be written to the screen
 			<-sm.uiDirty
-			sm.mu.Lock()
-			s := sm.activeSession
-			sm.mu.Unlock()
-			s.Render()
+
+			for {
+				select {
+				case <-sm.uiDirty:
+				default:
+					goto RENDER
+				}
+			}
+
+		RENDER:
+			sm.render()
 		}
 	}()
+}
+
+func (sm *sessionManager) render() {
+	sm.mu.Lock()
+	s := sm.activeSession
+	sm.mu.Unlock()
+	s.Render()
 }
 
 func (sm *sessionManager) next() {
@@ -253,18 +239,20 @@ func (sm *sessionManager) close(s Session) {
 			break
 		}
 	}
-
-	if len(sm.sessions) > 0 {
-		sm.activeSession = sm.sessions[0]
-		sm.clearPtyScreen()
-	}
 	sm.mu.Unlock()
+
+	sm.next()
 }
 
 func (sm *sessionManager) Wait() {
 	sm.sessionWg.Wait()
 }
 
-func (sm *sessionManager) clearPtyScreen() {
-	sm.activeSession.Render()
+func (sm *sessionManager) getSize() (int, int) {
+	rows, cols, err := pty.Getsize(os.Stdin)
+	if err != nil {
+		fmt.Printf("Cannot terminal size %v\n", err)
+	}
+
+	return rows, cols
 }

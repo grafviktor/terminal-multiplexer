@@ -26,20 +26,28 @@ func main() {
 	sm.Select(session)
 
 	// Put terminal into raw mode
-	if term.IsTerminal(int(os.Stdin.Fd())) {
-		old, _ := term.MakeRaw(int(os.Stdin.Fd()))
-		dyingSignal := make(chan os.Signal, 1)
-		signal.Notify(dyingSignal, os.Interrupt, syscall.SIGTERM)
-
-		// Restore terminal on interrupt or terminate
-		go func() {
-			<-dyingSignal
-			term.Restore(int(os.Stdin.Fd()), old)
-			os.Exit(0)
-		}()
+	terminalPtr := int(os.Stdin.Fd())
+	if term.IsTerminal(terminalPtr) {
+		oldState, _ := term.MakeRaw(terminalPtr)
+		defer restoreTerminal(terminalPtr, oldState)
+		runForceExitHandler(terminalPtr, oldState)
 	}
 
-	// Wait for all sessions to finish
 	sm.Wait()
 	fmt.Println("All sessions finished. Exiting.")
+}
+
+func runForceExitHandler(terminalPtr int, oldState *term.State) {
+	dyingSignal := make(chan os.Signal, 1)
+	signal.Notify(dyingSignal, os.Interrupt, syscall.SIGTERM)
+
+	go func() {
+		<-dyingSignal
+		fmt.Println("Killed. Exiting.")
+		restoreTerminal(terminalPtr, oldState)
+	}()
+}
+
+func restoreTerminal(terminalPtr int, oldState *term.State) {
+	term.Restore(terminalPtr, oldState)
 }
