@@ -23,14 +23,14 @@ type sessionManager struct {
 	mu            sync.Mutex
 	activeSession Session
 	sessions      []Session
-	uiDirty       chan struct{}
+	uiDirty       chan Session
 }
 
 func New() *sessionManager {
 	sm := &sessionManager{
 		sessions:  []Session{},
 		sessionWg: sync.WaitGroup{},
-		uiDirty:   make(chan struct{}, 1),
+		uiDirty:   make(chan Session, 1),
 	}
 
 	sm.createServicePane()
@@ -81,15 +81,10 @@ func (sm *sessionManager) Create(argv []string) (Session, error) {
 
 func (sm *sessionManager) Select(s Session) {
 	if ss, ok := s.(*StatusSession); ok {
-		if ps, ok := sm.activeSession.(*PtySession); ok {
-			w, h := ps.Term.Size()
-			sessionInfo := SessionInfo{
-				sessionCount: len(sm.sessions) - 1,
-				width:        w,
-				height:       h,
-			}
-			ss.Refresh(sessionInfo) // exclude status session
+		sessionInfo := SessionInfo{
+			sessionCount: len(sm.sessions) - 1,
 		}
+		ss.Refresh(sessionInfo) // exclude status session
 	}
 
 	sm.mu.Lock()
@@ -110,7 +105,7 @@ func (sm *sessionManager) runStdInReader() {
 			}
 
 			sm.parseStdIn(buf[:n])
-			sm.uiDirty <- struct{}{}
+			sm.uiDirty <- sm.activeSession
 		}
 	}()
 }
@@ -129,7 +124,7 @@ func (sm *sessionManager) runStdOutReader(s Session) {
 			if ps, ok := s.(*PtySession); ok {
 				ps.Term.Write(data)
 			}
-			sm.uiDirty <- struct{}{}
+			sm.uiDirty <- s
 		}
 	}()
 }
@@ -154,18 +149,20 @@ func (sm *sessionManager) runRenderer() {
 	go func() {
 		for {
 			// Wait for something to be written to the screen
-			<-sm.uiDirty
+			s := <-sm.uiDirty
 
 			for {
 				select {
-				case <-sm.uiDirty:
+				case s = <-sm.uiDirty:
 				default:
 					goto RENDER
 				}
 			}
 
 		RENDER:
-			sm.render()
+			if s == sm.activeSession {
+				sm.render()
+			}
 		}
 	}()
 }
@@ -197,7 +194,7 @@ func (sm *sessionManager) next() {
 	}
 
 	sm.Select(sm.sessions[currentSessionID])
-	sm.uiDirty <- struct{}{}
+	sm.uiDirty <- sm.activeSession
 }
 
 func (sm *sessionManager) parseStdIn(data []byte) {
