@@ -36,3 +36,9 @@ func (s *StatusSession) Write(p []byte) (int, error) {
 	os.Stdout.Write([]byte("\x1b[2J\x1b[H"))
 	return os.Stdout.Write(s.buf.Bytes())
 }
+
+func (s *StatusSession) Render() {}
+
+func (s *StatusSession) InheritSize(t *os.File) error {
+	return nil
+}
