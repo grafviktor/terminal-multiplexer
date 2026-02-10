@@ -89,13 +89,21 @@ func (sm *sessionManager) Create(argv []string) (Session, error) {
 }
 
 func (sm *sessionManager) Select(s Session) {
+	if ss, ok := s.(*StatusSession); ok {
+		if ps, ok := sm.activeSession.(*PtySession); ok {
+			w, h := ps.Term.Size()
+			sessionInfo := SessionInfo{
+				sessionCount: len(sm.sessions) - 1,
+				width: w,
+				height: h,
+			}
+			ss.Refresh(sessionInfo) // exclude status session
+		}
+	}
+
 	sm.mu.Lock()
 	sm.activeSession = s
 	sm.mu.Unlock()
-
-	if ss, ok := s.(*StatusSession); ok {
-		ss.Refresh(len(sm.sessions) - 1) // exclude status session
-	}
 
 	sm.clearPtyScreen()
 }
@@ -135,40 +143,41 @@ func (sm *sessionManager) runStdOutReader(s Session) {
 	}()
 }
 
-func (sm *sessionManager) runWindowSizeWatcher() {
-	ch := make(chan os.Signal, 1)
-	signal.Notify(ch, syscall.SIGWINCH)
-	go func() {
-		for range ch {
-			err := sm.activeSession.InheritSize(os.Stdin)
-			if err != nil {
-				log.Printf("failed to inherit size: %v", err)
-			}
-			sm.activeSession.Render()
-		}
-	}()
-}
-
+// Does not handle session size change
 // func (sm *sessionManager) runWindowSizeWatcher() {
 // 	ch := make(chan os.Signal, 1)
 // 	signal.Notify(ch, syscall.SIGWINCH)
 // 	go func() {
 // 		for range ch {
-// 			if ps, ok := sm.activeSession.(*PtySession); ok {
-// 				// That's very important to forward the size of the terminal from the stdin
-// 				// to ps.Master which generates the output. Otherwise ncurses apps
-// 				// will not be rendered correctly.
-// 				pty.InheritSize(os.Stdin, ps.Master)
-// 				// Then we set size to vt10x to render the terminal correctly.
-// 				rows, cols, err := pty.Getsize(os.Stdin)
-// 				if err == nil {
-// 					ps.Term.Resize(cols, rows) // note: vt10x wants cols, then rows
-// 				}
-// 				ps.Render()
+// 			err := sm.activeSession.InheritSize(os.Stdin)
+// 			if err != nil {
+// 				log.Printf("failed to inherit size: %v", err)
 // 			}
+// 			sm.activeSession.Render()
 // 		}
 // 	}()
 // }
+
+func (sm *sessionManager) runWindowSizeWatcher() {
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, syscall.SIGWINCH)
+	go func() {
+		for range ch {
+			if ps, ok := sm.activeSession.(*PtySession); ok {
+				// That's very important to forward the size of the terminal from the stdin
+				// to ps.Master which generates the output. Otherwise ncurses apps
+				// will not be rendered correctly.
+				pty.InheritSize(os.Stdin, ps.Master)
+				// Then we set size to vt10x to render the terminal correctly.
+				rows, cols, err := pty.Getsize(os.Stdin)
+				if err == nil {
+					ps.Term.Resize(cols, rows) // note: vt10x wants cols, then rows
+				}
+				ps.Render()
+			}
+		}
+	}()
+}
 
 func (sm *sessionManager) runRenderer() {
 	go func() {

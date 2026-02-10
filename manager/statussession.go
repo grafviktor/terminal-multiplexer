@@ -15,11 +15,14 @@ type StatusSession struct {
 	buf bytes.Buffer
 }
 
-func (s *StatusSession) Refresh(sessionCount int) {
+func (s *StatusSession) Refresh(sessionInfo SessionInfo) {
 	s.buf.Reset()
 	// Explicit cariage return is required to move cursor to the beginning of the line after clearing the screen
 	fmt.Fprintf(&s.buf, "Control Pane\n")
-	fmt.Fprintf(&s.buf, "\rNumber of sessions: %d\n\r", sessionCount)
+	fmt.Fprintf(&s.buf, "\rNumber of sessions: %d\n\r", sessionInfo.sessionCount)
+	fmt.Fprintf(&s.buf, "\rHeight: %d\n\r", sessionInfo.height)
+	fmt.Fprintf(&s.buf, "\rWidth: %d\n\r", sessionInfo.width)
+	fmt.Fprintf(&s.buf, "\r\n")
 	s.Write(s.buf.Bytes())
 }
 
