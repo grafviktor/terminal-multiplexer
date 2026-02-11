@@ -38,13 +38,14 @@ func main() {
 }
 
 func runForceExitHandler(terminalPtr int, oldState *term.State) {
-	dyingSignal := make(chan os.Signal, 1)
-	signal.Notify(dyingSignal, os.Interrupt, syscall.SIGTERM)
+	killSignal := make(chan os.Signal, 1)
+	signal.Notify(killSignal, os.Interrupt, syscall.SIGTERM)
 
 	go func() {
-		<-dyingSignal
+		<-killSignal
 		fmt.Println("Killed. Exiting.")
 		restoreTerminal(terminalPtr, oldState)
+		os.Exit(1)
 	}()
 }
 

@@ -12,8 +12,6 @@ import (
 
 var _ Session = (*PtySession)(nil)
 
-const maxBufferHistory = 1024 * 1024 // 1MB
-
 type PtySession struct {
 	Ptmx *os.File
 	Term vt10x.Terminal
@@ -26,8 +24,11 @@ func (s *PtySession) Read(p []byte) (int, error) {
 }
 
 func (s *PtySession) Write(p []byte) (int, error) {
-	// return s.Term.Write(p)
 	return s.Ptmx.Write(p)
+}
+
+func (s *PtySession) WriteBackground(p []byte) (int, error) {
+	return s.Term.Write(p)
 }
 
 func (s *PtySession) SetSize(cols, rows int) error {
@@ -70,7 +71,7 @@ func (s *PtySession) Render() {
 
 	// Get the current cursor position and put the cursor in the correct place after rendering the terminal.
 	cursorPos := s.Term.Cursor()
-	sb.WriteString(fmt.Sprintf("\x1b[%d;%dH", cursorPos.Y+1, cursorPos.X+1))
+	fmt.Fprintf(&sb, "\x1b[%d;%dH", cursorPos.Y+1, cursorPos.X+1)
 
 	fmt.Print(sb.String())
 }
