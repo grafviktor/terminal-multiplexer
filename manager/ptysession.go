@@ -48,6 +48,7 @@ func (s *PtySession) Render() {
 	// In other words - it replaces what was previously on the screen.
 	// If removed, then ypu'll have every "frame" of the terminal rendered on the screen.
 	clearAndHome := "\x1b[2J\x1b[H"
+	resetColors := "\x1b[0m"
 	fmt.Print(clearAndHome)
 	s.Term.Lock()
 	defer s.Term.Unlock()
@@ -56,21 +57,66 @@ func (s *PtySession) Render() {
 	sb := strings.Builder{}
 	sb.WriteString(clearAndHome)
 
+	prevFG := ""
+	prevBG := ""
+
 	// Should diff crrent buffer with previous before rendering.
 	for y := 0; y < h; y++ {
 		for x := 0; x < w; x++ {
-			cell := s.Term.Cell(x, y)
-			if cell.Char == 0 {
-				sb.WriteString(" ")
-			} else {
-				sb.WriteString(string(cell.Char))
+			glyph := s.Term.Cell(x, y)
+			newFG := s.makeFG(glyph.FG)
+			newBG := s.makeBG(glyph.BG)
+			char := s.makeChar(glyph.Char)
+
+			if newFG != prevFG {
+				sb.WriteString(newFG)
+				prevFG = newFG
 			}
+
+			if newBG != prevBG {
+				sb.WriteString(newBG)
+				prevBG = newBG
+			}
+
+			sb.WriteString(char)
 		}
 	}
 
+	sb.WriteString(resetColors)
 	// Get the current cursor position and put the cursor in the correct place after rendering the terminal.
 	cursorPos := s.Term.Cursor()
-	sb.WriteString(fmt.Sprintf("\x1b[%d;%dH", cursorPos.Y+1, cursorPos.X+1))
+	fmt.Fprintf(&sb, "\x1b[%d;%dH", cursorPos.Y+1, cursorPos.X+1)
 
 	fmt.Print(sb.String())
+}
+
+func (s *PtySession) makeChar(char rune) string {
+	if char == 0 {
+		return " "
+	}
+
+	return string(char)
+}
+
+/*
+Default fg: \x1b[39m
+Default bg: \x1b[49m
+256-color fg: \x1b[38;5;<n>m
+256-color bg: \x1b[48;5;<n>m
+*/
+
+func (s *PtySession) makeFG(fg vt10x.Color) string {
+	if fg == vt10x.DefaultFG || fg >= (1<<24) {
+		return "\x1b[39m"
+	} else {
+		return fmt.Sprintf("\x1b[38;5;%dm", int(fg))
+	}
+}
+
+func (s *PtySession) makeBG(bg vt10x.Color) string {
+	if bg == vt10x.DefaultBG || bg >= (1<<24) {
+		return "\x1b[49m"
+	} else {
+		return fmt.Sprintf("\x1b[48;5;%dm", int(bg))
+	}
 }
