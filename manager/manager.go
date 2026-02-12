@@ -11,7 +11,6 @@ import (
 	"syscall"
 
 	"github.com/creack/pty"
-	"github.com/hinshun/vt10x"
 )
 
 const hotKey = 0x01 // Ctrl-A
@@ -50,12 +49,11 @@ func (sm *sessionManager) createServicePane() {
 
 func (sm *sessionManager) Create(argv []string) (Session, error) {
 	cmd := exec.Command(argv[0], argv[1:]...)
-	ptmx, err := pty.Start(cmd)
+	session, err := NewPtySession(sm.nextSessionID, cmd)
 	if err != nil {
 		return nil, err
 	}
 
-	session := &PtySession{Ptmx: ptmx, Term: vt10x.New(), ID: sm.nextSessionID}
 	rows, cols := sm.getSize()
 	session.SetSize(cols, rows)
 	sm.nextSessionID++

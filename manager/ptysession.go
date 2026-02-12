@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/creack/pty"
@@ -13,18 +14,33 @@ import (
 var _ Session = (*PtySession)(nil)
 
 type PtySession struct {
-	Ptmx *os.File
-	Term vt10x.Terminal
-	ID   int
-	buf  bytes.Buffer
+	ID        int
+	Term      vt10x.Terminal
+	ptmx      *os.File
+	buf       bytes.Buffer
+	prevFrame []vt10x.Glyph
+}
+
+func NewPtySession(id int, cmd *exec.Cmd) (*PtySession, error) {
+	ptmx, err := pty.Start(cmd)
+	if err != nil {
+		return nil, err
+	}
+
+	return &PtySession{
+		ID:        id,
+		Term:      vt10x.New(),
+		ptmx:      ptmx,
+		prevFrame: make([]vt10x.Glyph, 0),
+	}, nil
 }
 
 func (s *PtySession) Read(p []byte) (int, error) {
-	return s.Ptmx.Read(p)
+	return s.ptmx.Read(p)
 }
 
 func (s *PtySession) Write(p []byte) (int, error) {
-	return s.Ptmx.Write(p)
+	return s.ptmx.Write(p)
 }
 
 func (s *PtySession) WriteBackground(p []byte) (int, error) {
@@ -35,7 +51,7 @@ func (s *PtySession) SetSize(cols, rows int) error {
 	// That's very important to forward the size of the terminal from the stdin
 	// to ps.Ptmx which generates the output. Otherwise ncurses apps
 	// will not be rendered correctly.
-	err := pty.Setsize(s.Ptmx, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)})
+	err := pty.Setsize(s.ptmx, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)})
 	if err != nil {
 		return err
 	}
@@ -79,7 +95,7 @@ func (s *PtySession) Render() {
 				prevBG = newBG
 			}
 
-			sb.WriteString(char)
+			sb.WriteRune(char)
 		}
 	}
 
@@ -91,20 +107,13 @@ func (s *PtySession) Render() {
 	fmt.Print(sb.String())
 }
 
-func (s *PtySession) makeChar(char rune) string {
+func (s *PtySession) makeChar(char rune) rune {
 	if char == 0 {
-		return " "
+		return ' '
 	}
 
-	return string(char)
+	return char
 }
-
-/*
-Default fg: \x1b[39m
-Default bg: \x1b[49m
-256-color fg: \x1b[38;5;<n>m
-256-color bg: \x1b[48;5;<n>m
-*/
 
 func (s *PtySession) makeFG(fg vt10x.Color) string {
 	if fg == vt10x.DefaultFG || fg >= (1<<24) {
