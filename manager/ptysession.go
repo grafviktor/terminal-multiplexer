@@ -12,8 +12,6 @@ import (
 
 var _ Session = (*PtySession)(nil)
 
-const maxBufferHistory = 1024 * 1024 // 1MB
-
 type PtySession struct {
 	Ptmx *os.File
 	Term vt10x.Terminal
@@ -26,8 +24,11 @@ func (s *PtySession) Read(p []byte) (int, error) {
 }
 
 func (s *PtySession) Write(p []byte) (int, error) {
-	// return s.Term.Write(p)
 	return s.Ptmx.Write(p)
+}
+
+func (s *PtySession) WriteBackground(p []byte) (int, error) {
+	return s.Term.Write(p)
 }
 
 func (s *PtySession) SetSize(cols, rows int) error {

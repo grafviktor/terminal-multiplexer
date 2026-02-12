@@ -42,7 +42,8 @@ func New() *sessionManager {
 }
 
 func (sm *sessionManager) createServicePane() {
-	p := &StatusSession{}
+	rows, cols := sm.getSize()
+	p := &StatusSession{cols: cols, rows: rows}
 	sm.sessions = append(sm.sessions, p)
 	sm.Select(p)
 }
@@ -121,9 +122,7 @@ func (sm *sessionManager) runStdOutReader(s Session) {
 			}
 
 			data := bytes.Clone(tmp[:n])
-			if ps, ok := s.(*PtySession); ok {
-				ps.Term.Write(data)
-			}
+			s.WriteBackground(data)
 			sm.uiDirty <- s
 		}
 	}()
@@ -145,7 +144,8 @@ func (sm *sessionManager) runWindowSizeWatcher() {
 }
 
 func (sm *sessionManager) runRenderer() {
-	// full channel drain (latest-wins, burst-safe)
+	// FIXME: That's a bad implementation, because events can come from different sessions, and
+	// it's not guaranteed that last event come from active session, thus we can lose an update.
 	go func() {
 		for {
 			// Wait for something to be written to the screen

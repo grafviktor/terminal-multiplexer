@@ -45,6 +45,7 @@ func runForceExitHandler(terminalPtr int, oldState *term.State) {
 		<-killSignal
 		fmt.Println("Killed. Exiting.")
 		restoreTerminal(terminalPtr, oldState)
+		os.Exit(1)
 	}()
 }
 

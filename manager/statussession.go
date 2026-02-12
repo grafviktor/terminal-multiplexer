@@ -26,7 +26,7 @@ func (s *StatusSession) Read(p []byte) (int, error) {
 	return 0, nil // no PTY, nothing to read
 }
 
-func (s *StatusSession) WriteToBuffer(p []byte) (int, error) {
+func (s *StatusSession) WriteBackground(p []byte) (int, error) {
 	return 0, nil
 }
 
