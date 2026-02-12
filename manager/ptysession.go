@@ -18,7 +18,7 @@ type PtySession struct {
 	Term      vt10x.Terminal
 	ptmx      *os.File
 	buf       bytes.Buffer
-	prevFrame []vt10x.Glyph
+	prevFrame map[string]vt10x.Glyph
 }
 
 func NewPtySession(id int, cmd *exec.Cmd) (*PtySession, error) {
@@ -31,7 +31,7 @@ func NewPtySession(id int, cmd *exec.Cmd) (*PtySession, error) {
 		ID:        id,
 		Term:      vt10x.New(),
 		ptmx:      ptmx,
-		prevFrame: make([]vt10x.Glyph, 0),
+		prevFrame: make(map[string]vt10x.Glyph),
 	}, nil
 }
 
@@ -129,4 +129,8 @@ func (s *PtySession) makeBG(bg vt10x.Color) string {
 	} else {
 		return fmt.Sprintf("\x1b[48;5;%dm", int(bg))
 	}
+}
+
+func (s *PtySession) Close() {
+	s.ptmx.Close()
 }

@@ -50,3 +50,5 @@ func (s *StatusSession) SetSize(cols, rows int) error {
 	s.rows = rows
 	return nil
 }
+
+func (s *StatusSession) Close() {}

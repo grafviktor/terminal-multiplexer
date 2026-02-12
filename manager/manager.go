@@ -67,10 +67,7 @@ func (sm *sessionManager) Create(argv []string) (Session, error) {
 		if waitErr != nil {
 			log.Printf("session %d ended with error: %v", session.ID, waitErr)
 		}
-		defer func() {
-			ptmx.Close()
-			sm.close(session)
-		}()
+		defer sm.close(session)
 	})
 
 	// Wait session goroutine to start
@@ -235,6 +232,7 @@ func (sm *sessionManager) close(s Session) {
 	}
 	sm.mu.Unlock()
 
+	s.Close()
 	sm.next()
 }
 
