@@ -18,7 +18,9 @@ type PtySession struct {
 	Term      vt10x.Terminal
 	ptmx      *os.File
 	buf       bytes.Buffer
-	prevFrame map[string]vt10x.Glyph
+	prevFrame map[int]string
+	prevX     int
+	prevY     int
 }
 
 func NewPtySession(id int, cmd *exec.Cmd) (*PtySession, error) {
@@ -31,7 +33,7 @@ func NewPtySession(id int, cmd *exec.Cmd) (*PtySession, error) {
 		ID:        id,
 		Term:      vt10x.New(),
 		ptmx:      ptmx,
-		prevFrame: make(map[string]vt10x.Glyph),
+		prevFrame: make(map[int]string),
 	}, nil
 }
 
@@ -66,20 +68,27 @@ func (s *PtySession) Render() {
 	// If removed, then ypu'll have every "frame" of the terminal rendered on the screen.
 	clearAndHome := "\x1b[2J\x1b[H"
 	resetColors := "\x1b[0m"
-	fmt.Print(clearAndHome)
 	s.Term.Lock()
 	defer s.Term.Unlock()
-	w, h := s.Term.Size()
+	cols, rows := s.Term.Size()
 
 	sb := strings.Builder{}
-	sb.WriteString(clearAndHome)
+
+	// FIXME: Need to clear screen when switch from another session.
+	if s.prevX != cols || s.prevY != rows {
+		// Full re-render if the size of the terminal has changed.
+		sb.WriteString(clearAndHome)
+		s.prevFrame = make(map[int]string)
+		s.prevX = cols
+		s.prevY = rows
+	}
 
 	prevFG := ""
 	prevBG := ""
 
 	// Should diff crrent buffer with previous before rendering.
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
+	for y := 0; y < rows; y++ {
+		for x := 0; x < cols; x++ {
 			glyph := s.Term.Cell(x, y)
 			newFG := s.makeFG(glyph.FG)
 			newBG := s.makeBG(glyph.BG)
@@ -97,13 +106,21 @@ func (s *PtySession) Render() {
 
 			sb.WriteRune(char)
 		}
+
+		prevRow, rowFound := s.prevFrame[y]
+		currentRow := sb.String()
+		if !rowFound || prevRow != currentRow {
+			s.prevFrame[y] = currentRow
+			fmt.Fprintf(os.Stdout, "\x1b[%d;1H\x1b[2K%s", y+1, currentRow)
+		}
+
+		sb.Reset()
 	}
 
 	sb.WriteString(resetColors)
 	// Get the current cursor position and put the cursor in the correct place after rendering the terminal.
 	cursorPos := s.Term.Cursor()
 	fmt.Fprintf(&sb, "\x1b[%d;%dH", cursorPos.Y+1, cursorPos.X+1)
-
 	fmt.Print(sb.String())
 }
 
