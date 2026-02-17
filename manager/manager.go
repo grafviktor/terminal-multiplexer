@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	"github.com/creack/pty"
+	"github.com/hinshun/vt10x"
 )
 
 const hotKey = 0x01 // Ctrl-A
@@ -18,11 +19,13 @@ const hotKey = 0x01 // Ctrl-A
 type sessionManager struct {
 	nextSessionID int
 	sessionWg     sync.WaitGroup
+	uiDirty       chan Session
+	isModeAppCursor bool
+	isModeAppKeypad bool
 
 	mu            sync.Mutex
 	activeSession Session
 	sessions      []Session
-	uiDirty       chan Session
 }
 
 func New() *sessionManager {
@@ -164,10 +167,56 @@ func (sm *sessionManager) render(shouldInvalidate bool) {
 	sm.mu.Lock()
 	s := sm.activeSession
 	sm.mu.Unlock()
+	// Clears the previous screen of the session.
 	if shouldInvalidate {
 		s.Invalidate()
 	}
+
+	sm.setTerminalMode(s)
 	s.Render()
+}
+
+func (sm *sessionManager) setTerminalMode(s Session) {
+	ptySession, ok := s.(*PtySession)
+	if ok {
+		mode := ptySession.Term.Mode()
+		isModeAppCursor := mode & vt10x.ModeAppCursor != 0
+		isModeAppKeypad := mode & vt10x.ModeAppKeypad != 0
+
+		if sm.isModeAppCursor != isModeAppCursor {
+			sm.isModeAppCursor = isModeAppCursor
+			if isModeAppCursor {
+				sm.enableAppCursorMode()
+			} else {
+				sm.disableAppCursorMode()
+			}
+		}
+
+		if sm.isModeAppKeypad != isModeAppKeypad {
+			sm.isModeAppKeypad = isModeAppKeypad
+			if isModeAppKeypad {
+				sm.enableAppKeypadMode()
+			} else {
+				sm.disableAppKeypadMode()
+			}
+		}
+	}
+}
+
+func (sm *sessionManager) enableAppCursorMode() {
+	fmt.Print("\x1b[?1h")
+}
+
+func (sm *sessionManager) disableAppCursorMode() {
+	fmt.Print("\x1b[?1l")
+}
+
+func (sm *sessionManager) enableAppKeypadMode() {
+	fmt.Print("\x1b=")
+}
+
+func (sm *sessionManager) disableAppKeypadMode() {
+	fmt.Print("\x1b")
 }
 
 func (sm *sessionManager) next() {
