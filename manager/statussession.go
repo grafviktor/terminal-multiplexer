@@ -52,3 +52,4 @@ func (s *StatusSession) SetSize(cols, rows int) error {
 }
 
 func (s *StatusSession) Close() {}
+func (s *StatusSession) Invalidate() {}

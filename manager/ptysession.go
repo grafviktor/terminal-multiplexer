@@ -37,7 +37,7 @@ func NewPtySession(id int, cmd *exec.Cmd) (*PtySession, error) {
 	}, nil
 }
 
-func (s *PtySession) resetPrevFrame() {
+func (s *PtySession) Invalidate() {
 	s.prevFrame = make(map[int]string)
 	clearAndHome := "\x1b[2J\x1b[H"
 	fmt.Print(clearAndHome)
@@ -65,8 +65,8 @@ func (s *PtySession) SetSize(cols, rows int) error {
 	}
 
 	s.Term.Resize(cols, rows) // note: vt10x wants cols, then rows
-	// Finally clear the screen.
-	s.resetPrevFrame()
+	// Finally reset previous frame.
+	s.Invalidate()
 	return nil
 }
 

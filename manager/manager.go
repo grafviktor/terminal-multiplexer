@@ -87,7 +87,7 @@ func (sm *sessionManager) Select(s Session) {
 	sm.activeSession = s
 	sm.mu.Unlock()
 
-	sm.render()
+	sm.render(true)
 }
 
 func (sm *sessionManager) runStdInReader() {
@@ -139,8 +139,6 @@ func (sm *sessionManager) runWindowSizeWatcher() {
 }
 
 func (sm *sessionManager) runRenderer() {
-	// FIXME: That's a bad implementation, because events can come from different sessions, and
-	// it's not guaranteed that last event come from active session, thus we can lose an update.
 	go func() {
 		for {
 			// Wait for something to be written to the screen
@@ -156,16 +154,19 @@ func (sm *sessionManager) runRenderer() {
 
 		RENDER:
 			if s == sm.activeSession {
-				sm.render()
+				sm.render(false)
 			}
 		}
 	}()
 }
 
-func (sm *sessionManager) render() {
+func (sm *sessionManager) render(shouldInvalidate bool) {
 	sm.mu.Lock()
 	s := sm.activeSession
 	sm.mu.Unlock()
+	if shouldInvalidate {
+		s.Invalidate()
+	}
 	s.Render()
 }
 
