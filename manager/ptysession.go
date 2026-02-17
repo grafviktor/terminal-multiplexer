@@ -37,6 +37,12 @@ func NewPtySession(id int, cmd *exec.Cmd) (*PtySession, error) {
 	}, nil
 }
 
+func (s *PtySession) resetPrevFrame() {
+	s.prevFrame = make(map[int]string)
+	clearAndHome := "\x1b[2J\x1b[H"
+	fmt.Print(clearAndHome)
+}
+
 func (s *PtySession) Read(p []byte) (int, error) {
 	return s.ptmx.Read(p)
 }
@@ -59,6 +65,8 @@ func (s *PtySession) SetSize(cols, rows int) error {
 	}
 
 	s.Term.Resize(cols, rows) // note: vt10x wants cols, then rows
+	// Finally clear the screen.
+	s.resetPrevFrame()
 	return nil
 }
 
@@ -66,22 +74,19 @@ func (s *PtySession) Render() {
 	// This always clears the screen and moves the cursor to the home position.
 	// In other words - it replaces what was previously on the screen.
 	// If removed, then ypu'll have every "frame" of the terminal rendered on the screen.
-	clearAndHome := "\x1b[2J\x1b[H"
 	resetColors := "\x1b[0m"
+	sb := strings.Builder{}
 	s.Term.Lock()
 	defer s.Term.Unlock()
-	cols, rows := s.Term.Size()
-
-	sb := strings.Builder{}
 
 	// FIXME: Need to clear screen when switch from another session.
-	if s.prevX != cols || s.prevY != rows {
-		// Full re-render if the size of the terminal has changed.
-		sb.WriteString(clearAndHome)
-		s.prevFrame = make(map[int]string)
-		s.prevX = cols
-		s.prevY = rows
-	}
+	cols, rows := s.Term.Size()
+	// if s.prevX != cols || s.prevY != rows {
+	// 	s.clearScreen()
+	// 	// Full re-render if the size of the terminal has changed.
+	// 	s.prevX = cols
+	// 	s.prevY = rows
+	// }
 
 	prevFG := ""
 	prevBG := ""
@@ -107,11 +112,11 @@ func (s *PtySession) Render() {
 			sb.WriteRune(char)
 		}
 
-		prevRow, rowFound := s.prevFrame[y]
-		currentRow := sb.String()
-		if !rowFound || prevRow != currentRow {
-			s.prevFrame[y] = currentRow
-			fmt.Fprintf(os.Stdout, "\x1b[%d;1H\x1b[2K%s", y+1, currentRow)
+		prevLine, lineFound := s.prevFrame[y]
+		currentLine := sb.String()
+		if !lineFound || prevLine != currentLine {
+			s.prevFrame[y] = currentLine
+			fmt.Fprintf(os.Stdout, "\x1b[%d;1H\x1b[2K%s", y+1, currentLine)
 		}
 
 		sb.Reset()
