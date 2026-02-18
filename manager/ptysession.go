@@ -56,7 +56,7 @@ func (s *PtySession) WriteBackground(p []byte) (int, error) {
 }
 
 func (s *PtySession) SetSize(cols, rows int) error {
-	// That's very important to forward the size of the terminal from the stdin
+	// It's important to forward the size of the terminal from the stdin
 	// to ps.Ptmx which generates the output. Otherwise ncurses apps
 	// will not be rendered correctly.
 	err := pty.Setsize(s.ptmx, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)})
@@ -71,28 +71,16 @@ func (s *PtySession) SetSize(cols, rows int) error {
 }
 
 func (s *PtySession) Render() {
-	// This always clears the screen and moves the cursor to the home position.
-	// In other words - it replaces what was previously on the screen.
-	// If removed, then ypu'll have every "frame" of the terminal rendered on the screen.
-	resetColors := "\x1b[0m"
 	sb := strings.Builder{}
 	s.Term.Lock()
 	defer s.Term.Unlock()
 
-	// FIXME: Need to clear screen when switch from another session.
 	cols, rows := s.Term.Size()
-	// if s.prevX != cols || s.prevY != rows {
-	// 	s.clearScreen()
-	// 	// Full re-render if the size of the terminal has changed.
-	// 	s.prevX = cols
-	// 	s.prevY = rows
-	// }
-
-	prevFG := ""
-	prevBG := ""
-
-	// Should diff crrent buffer with previous before rendering.
 	for y := 0; y < rows; y++ {
+		// Reset previous foreground and background for every line.
+		prevFG := ""
+		prevBG := ""
+
 		for x := 0; x < cols; x++ {
 			glyph := s.Term.Cell(x, y)
 			newFG := s.makeFG(glyph.FG)
@@ -116,12 +104,16 @@ func (s *PtySession) Render() {
 		currentLine := sb.String()
 		if !lineFound || prevLine != currentLine {
 			s.prevFrame[y] = currentLine
+			// sb.WriteString("\x1b[?7l") // Disable line wrapping
 			fmt.Fprintf(os.Stdout, "\x1b[%d;1H\x1b[2K%s", y+1, currentLine)
+			// sb.WriteString("\x1b[?7h") // Enable line wrapping
 		}
 
-		sb.Reset()
+		sb = strings.Builder{}
 	}
 
+	// Without this line, when switch between sessions, you can see the previous session's colors.
+	resetColors := "\x1b[0m"
 	sb.WriteString(resetColors)
 	// Get the current cursor position and put the cursor in the correct place after rendering the terminal.
 	cursorPos := s.Term.Cursor()
