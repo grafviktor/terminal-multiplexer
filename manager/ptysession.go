@@ -21,6 +21,8 @@ type PtySession struct {
 	prevFrame map[int]string
 	prevX     int
 	prevY     int
+	isModeAppCursor bool
+	isModeAppKeypad bool
 }
 
 func NewPtySession(id int, cmd *exec.Cmd) (*PtySession, error) {
@@ -65,12 +67,12 @@ func (s *PtySession) SetSize(cols, rows int) error {
 	}
 
 	s.Term.Resize(cols, rows) // note: vt10x wants cols, then rows
-	// Finally reset previous frame.
-	s.Invalidate()
 	return nil
 }
 
 func (s *PtySession) Render() {
+	s.setTerminalMode()
+
 	sb := strings.Builder{}
 	s.Term.Lock()
 	defer s.Term.Unlock()
@@ -104,9 +106,9 @@ func (s *PtySession) Render() {
 		currentLine := sb.String()
 		if !lineFound || prevLine != currentLine {
 			s.prevFrame[y] = currentLine
-			// sb.WriteString("\x1b[?7l") // Disable line wrapping
+			// fmt.Fprintf(os.Stdout, "\x1b[?7l") // Disable line wrapping
 			fmt.Fprintf(os.Stdout, "\x1b[%d;1H\x1b[2K%s", y+1, currentLine)
-			// sb.WriteString("\x1b[?7h") // Enable line wrapping
+			// fmt.Fprintf(os.Stdout, "\x1b[?7h") // Enable line wrapping
 		}
 
 		sb = strings.Builder{}
@@ -119,6 +121,48 @@ func (s *PtySession) Render() {
 	cursorPos := s.Term.Cursor()
 	fmt.Fprintf(&sb, "\x1b[%d;%dH", cursorPos.Y+1, cursorPos.X+1)
 	fmt.Print(sb.String())
+}
+
+func (s *PtySession) setTerminalMode() {
+	s.Term.Lock()
+	mode := s.Term.Mode()
+	s.Term.Unlock()
+	isModeAppCursor := mode & vt10x.ModeAppCursor != 0
+	isModeAppKeypad := mode & vt10x.ModeAppKeypad != 0
+
+	if s.isModeAppCursor != isModeAppCursor {
+		s.isModeAppCursor = isModeAppCursor
+		if isModeAppCursor {
+			s.enableAppCursorMode()
+		} else {
+			s.disableAppCursorMode()
+		}
+	}
+
+	if s.isModeAppKeypad != isModeAppKeypad {
+		s.isModeAppKeypad = isModeAppKeypad
+		if isModeAppKeypad {
+			s.enableAppKeypadMode()
+		} else {
+			s.disableAppKeypadMode()
+		}
+	}
+}
+
+func (s *PtySession) enableAppCursorMode() {
+	fmt.Print("\x1b[?1h")
+}
+
+func (s *PtySession) disableAppCursorMode() {
+	fmt.Print("\x1b[?1l")
+}
+
+func (s *PtySession) enableAppKeypadMode() {
+	fmt.Print("\x1b=")
+}
+
+func (s *PtySession) disableAppKeypadMode() {
+	fmt.Print("\x1b>")
 }
 
 func (s *PtySession) makeChar(char rune) rune {

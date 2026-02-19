@@ -11,7 +11,6 @@ import (
 	"syscall"
 
 	"github.com/creack/pty"
-	"github.com/hinshun/vt10x"
 )
 
 const hotKey = 0x01 // Ctrl-A
@@ -20,8 +19,6 @@ type sessionManager struct {
 	nextSessionID int
 	sessionWg     sync.WaitGroup
 	uiDirty       chan Session
-	isModeAppCursor bool
-	isModeAppKeypad bool
 
 	mu            sync.Mutex
 	activeSession Session
@@ -104,7 +101,10 @@ func (sm *sessionManager) runStdInReader() {
 			}
 
 			sm.parseStdIn(buf[:n])
-			sm.uiDirty <- sm.activeSession
+			sm.mu.Lock()
+			activeSession := sm.activeSession
+			sm.mu.Unlock()
+			sm.uiDirty <- activeSession
 		}
 	}()
 }
@@ -136,7 +136,11 @@ func (sm *sessionManager) runWindowSizeWatcher() {
 				s.SetSize(cols, rows)
 			}
 
-			sm.activeSession.Render()
+			sm.mu.Lock()
+			activeSession := sm.activeSession
+			sm.mu.Unlock()
+			activeSession.Invalidate()
+			activeSession.Render()
 		}
 	}()
 }
@@ -156,7 +160,10 @@ func (sm *sessionManager) runRenderer() {
 			}
 
 		RENDER:
-			if s == sm.activeSession {
+			sm.mu.Lock()
+			activeSession := sm.activeSession
+			sm.mu.Unlock()
+			if s == activeSession {
 				sm.render(false)
 			}
 		}
@@ -172,51 +179,7 @@ func (sm *sessionManager) render(shouldInvalidate bool) {
 		s.Invalidate()
 	}
 
-	sm.setTerminalMode(s)
 	s.Render()
-}
-
-func (sm *sessionManager) setTerminalMode(s Session) {
-	ptySession, ok := s.(*PtySession)
-	if ok {
-		mode := ptySession.Term.Mode()
-		isModeAppCursor := mode & vt10x.ModeAppCursor != 0
-		isModeAppKeypad := mode & vt10x.ModeAppKeypad != 0
-
-		if sm.isModeAppCursor != isModeAppCursor {
-			sm.isModeAppCursor = isModeAppCursor
-			if isModeAppCursor {
-				sm.enableAppCursorMode()
-			} else {
-				sm.disableAppCursorMode()
-			}
-		}
-
-		if sm.isModeAppKeypad != isModeAppKeypad {
-			sm.isModeAppKeypad = isModeAppKeypad
-			if isModeAppKeypad {
-				sm.enableAppKeypadMode()
-			} else {
-				sm.disableAppKeypadMode()
-			}
-		}
-	}
-}
-
-func (sm *sessionManager) enableAppCursorMode() {
-	fmt.Print("\x1b[?1h")
-}
-
-func (sm *sessionManager) disableAppCursorMode() {
-	fmt.Print("\x1b[?1l")
-}
-
-func (sm *sessionManager) enableAppKeypadMode() {
-	fmt.Print("\x1b=")
-}
-
-func (sm *sessionManager) disableAppKeypadMode() {
-	fmt.Print("\x1b")
 }
 
 func (sm *sessionManager) next() {
@@ -224,10 +187,13 @@ func (sm *sessionManager) next() {
 		return
 	}
 
+	sm.mu.Lock()
+	activeSession := sm.activeSession
+	sm.mu.Unlock()
 	lastSessionID := len(sm.sessions) - 1
 	currentSessionID := 0
 	for i := range sm.sessions {
-		if sm.sessions[i] == sm.activeSession {
+		if sm.sessions[i] == activeSession{
 			currentSessionID = i + 1
 
 			if currentSessionID > lastSessionID {
@@ -238,8 +204,9 @@ func (sm *sessionManager) next() {
 		}
 	}
 
-	sm.Select(sm.sessions[currentSessionID])
-	sm.uiDirty <- sm.activeSession
+	newSession := sm.sessions[currentSessionID]
+	sm.Select(newSession)
+	sm.uiDirty <- newSession
 }
 
 func (sm *sessionManager) parseStdIn(data []byte) {
@@ -293,6 +260,7 @@ func (sm *sessionManager) Wait() {
 func (sm *sessionManager) getSize() (int, int) {
 	rows, cols, err := pty.Getsize(os.Stdin)
 	if err != nil {
+		// FIXME: This should be saved in logs rather than printed to the console.
 		fmt.Printf("Cannot terminal size %v\n", err)
 	}
 
