@@ -41,20 +41,25 @@ func New() *sessionManager {
 }
 
 func (sm *sessionManager) createServicePane() {
-	rows, cols := sm.getSize()
+	rows, cols := sm.getSize(true)
 	p := &StatusSession{cols: cols, rows: rows}
 	sm.sessions = append(sm.sessions, p)
 	sm.Select(p)
 }
 
 func (sm *sessionManager) Create(argv []string) (Session, error) {
+	rows, cols := sm.getSize(true)
+	cols = cols / 2 - 1 // leave 1 column for separator
+	return sm.createSessionPane(argv, rows, cols)
+}
+
+func (sm *sessionManager) createSessionPane(argv []string, rows, cols int) (Session, error) {
 	cmd := exec.Command(argv[0], argv[1:]...)
 	session, err := NewPtySession(sm.nextSessionID, cmd)
 	if err != nil {
 		return nil, err
 	}
 
-	rows, cols := sm.getSize()
 	session.SetSize(cols, rows)
 	sm.nextSessionID++
 	sm.sessions = append(sm.sessions, session)
@@ -132,7 +137,7 @@ func (sm *sessionManager) runWindowSizeWatcher() {
 	go func() {
 		for range ch {
 			for _, s := range sm.sessions {
-				rows, cols := sm.getSize()
+				rows, cols := sm.getSize(true)
 				s.SetSize(cols, rows)
 			}
 
@@ -257,7 +262,20 @@ func (sm *sessionManager) Wait() {
 	sm.sessionWg.Wait()
 }
 
-func (sm *sessionManager) getSize() (int, int) {
+func (sm *sessionManager) getSize(isSplit bool) (int, int) {
+	if isSplit {
+		return sm.getSizeSplit()
+	}
+
+	return sm.getSizeFull()
+}
+
+func (sm *sessionManager) getSizeSplit() (int, int) {
+	rows, cols := sm.getSizeFull()
+	return rows, cols / 2 - 1
+}
+
+func (sm *sessionManager) getSizeFull() (int, int) {
 	rows, cols, err := pty.Getsize(os.Stdin)
 	if err != nil {
 		// FIXME: This should be saved in logs rather than printed to the console.
