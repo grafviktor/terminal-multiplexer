@@ -13,17 +13,17 @@ import (
 
 func main() {
 	sm := manager.New()
-	session, err := sm.Create([]string{"bash", "-c", "while true; do date; sleep 1 ;done"})
+	pane, err := sm.Create(false, []string{"bash", "-c", "while true; do date; sleep 1 ;done"})
 	if err != nil {
 		log.Fatalf("failed to create session: %v", err)
 	}
-	sm.Select(session)
+	sm.Select(pane)
 
-	session, err = sm.Create([]string{"/bin/zsh"})
+	pane, err = sm.Create(false, []string{"/bin/zsh"})
 	if err != nil {
 		log.Fatalf("failed to create session: %v", err)
 	}
-	sm.Select(session)
+	sm.Select(pane)
 
 	// Put terminal into raw mode
 	terminalPtr := int(os.Stdin.Fd())

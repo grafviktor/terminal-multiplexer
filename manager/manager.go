@@ -18,18 +18,21 @@ const hotKey = 0x01 // Ctrl-A
 type sessionManager struct {
 	nextSessionID int
 	sessionWg     sync.WaitGroup
-	uiDirty       chan Session
+	uiDirty       chan Pane
 
-	mu            sync.Mutex
-	activeSession Session
-	sessions      []Session
+	mu sync.Mutex
+	// activeSession Session
+	// sessions      []Session
+	activePane *Pane
+	panes      []*Pane
 }
 
 func New() *sessionManager {
 	sm := &sessionManager{
-		sessions:  []Session{},
+		// sessions:  []Session{},
+		panes:     []*Pane{},
 		sessionWg: sync.WaitGroup{},
-		uiDirty:   make(chan Session, 1),
+		uiDirty:   make(chan Pane, 1),
 	}
 
 	sm.createServicePane()
@@ -41,29 +44,29 @@ func New() *sessionManager {
 }
 
 func (sm *sessionManager) createServicePane() {
-	rows, cols := sm.getSize(true)
-	p := &StatusSession{cols: cols, rows: rows}
-	sm.sessions = append(sm.sessions, p)
+	rows, cols := sm.getSize(false)
+	s := &StatusSession{cols: cols, rows: rows}
+	p := &Pane{ID: sm.nextSessionID, Session: s}
+	sm.panes = append(sm.panes, p)
 	sm.Select(p)
 }
 
-func (sm *sessionManager) Create(argv []string) (Session, error) {
-	rows, cols := sm.getSize(true)
-	cols = cols / 2 - 1 // leave 1 column for separator
+func (sm *sessionManager) Create(isSplit bool, argv []string) (*Pane, error) {
+	rows, cols := sm.getSize(isSplit)
 	return sm.createSessionPane(argv, rows, cols)
 }
 
-func (sm *sessionManager) createSessionPane(argv []string, rows, cols int) (Session, error) {
+func (sm *sessionManager) createSessionPane(argv []string, rows, cols int) (*Pane, error) {
 	cmd := exec.Command(argv[0], argv[1:]...)
 	session, err := NewPtySession(sm.nextSessionID, cmd)
 	if err != nil {
 		return nil, err
 	}
 
-	session.SetSize(cols, rows)
-	sm.nextSessionID++
-	sm.sessions = append(sm.sessions, session)
-	sm.runStdOutReader(session)
+	// session.SetSize(cols, rows)
+	p := NewPane(session.ID, session, cols, rows)
+	sm.panes = append(sm.panes, p)
+	sm.runStdOutReader(*p)
 
 	ready := make(chan any, 1)
 	sm.sessionWg.Go(func() {
@@ -72,24 +75,40 @@ func (sm *sessionManager) createSessionPane(argv []string, rows, cols int) (Sess
 		if waitErr != nil {
 			log.Printf("session %d ended with error: %v", session.ID, waitErr)
 		}
-		defer sm.close(session)
+		defer sm.close(*p)
 	})
 
 	// Wait session goroutine to start
 	<-ready
-	return session, nil
+	sm.nextSessionID++
+	return p, nil
 }
 
-func (sm *sessionManager) Select(s Session) {
-	if ss, ok := s.(*StatusSession); ok {
+// func (sm *sessionManager) Select(s Session) {
+// 	if ss, ok := s.(*StatusSession); ok {
+// 		sessionInfo := SessionInfo{
+// 			sessionCount: len(sm.sessions) - 1,
+// 		}
+// 		ss.Refresh(sessionInfo) // exclude status session
+// 	}
+
+// 	sm.mu.Lock()
+// 	sm.activeSession = s
+// 	sm.mu.Unlock()
+
+// 	sm.render(true)
+// }
+
+func (sm *sessionManager) Select(p *Pane) {
+	if ss, ok := p.Session.(*StatusSession); ok {
 		sessionInfo := SessionInfo{
-			sessionCount: len(sm.sessions) - 1,
+			sessionCount: len(sm.panes) - 1,
 		}
 		ss.Refresh(sessionInfo) // exclude status session
 	}
 
 	sm.mu.Lock()
-	sm.activeSession = s
+	sm.activePane = p
 	sm.mu.Unlock()
 
 	sm.render(true)
@@ -107,26 +126,26 @@ func (sm *sessionManager) runStdInReader() {
 
 			sm.parseStdIn(buf[:n])
 			sm.mu.Lock()
-			activeSession := sm.activeSession
+			activePane := sm.activePane
 			sm.mu.Unlock()
-			sm.uiDirty <- activeSession
+			sm.uiDirty <- *activePane
 		}
 	}()
 }
 
-func (sm *sessionManager) runStdOutReader(s Session) {
+func (sm *sessionManager) runStdOutReader(p Pane) {
 	go func() {
 		tmp := make([]byte, 4096)
 
 		for {
-			n, err := s.Read(tmp)
+			n, err := p.Session.Read(tmp)
 			if err != nil {
 				return
 			}
 
 			data := bytes.Clone(tmp[:n])
-			s.WriteBackground(data)
-			sm.uiDirty <- s
+			p.Session.WriteBackground(data)
+			sm.uiDirty <- p
 		}
 	}()
 }
@@ -136,16 +155,16 @@ func (sm *sessionManager) runWindowSizeWatcher() {
 	signal.Notify(ch, syscall.SIGWINCH)
 	go func() {
 		for range ch {
-			for _, s := range sm.sessions {
-				rows, cols := sm.getSize(true)
-				s.SetSize(cols, rows)
+			for _, p := range sm.panes {
+				rows, cols := sm.getSize(false)
+				p.SetSize(cols, rows)
 			}
 
 			sm.mu.Lock()
-			activeSession := sm.activeSession
+			activePane := sm.activePane
 			sm.mu.Unlock()
-			activeSession.Invalidate()
-			activeSession.Render()
+			activePane.Session.Invalidate()
+			activePane.Render()
 		}
 	}()
 }
@@ -154,11 +173,11 @@ func (sm *sessionManager) runRenderer() {
 	go func() {
 		for {
 			// Wait for something to be written to the screen
-			s := <-sm.uiDirty
+			p := <-sm.uiDirty
 
 			for {
 				select {
-				case s = <-sm.uiDirty:
+				case p = <-sm.uiDirty:
 				default:
 					goto RENDER
 				}
@@ -166,9 +185,9 @@ func (sm *sessionManager) runRenderer() {
 
 		RENDER:
 			sm.mu.Lock()
-			activeSession := sm.activeSession
+			activePane := sm.activePane
 			sm.mu.Unlock()
-			if s == activeSession {
+			if p == *activePane {
 				sm.render(false)
 			}
 		}
@@ -177,28 +196,28 @@ func (sm *sessionManager) runRenderer() {
 
 func (sm *sessionManager) render(shouldInvalidate bool) {
 	sm.mu.Lock()
-	s := sm.activeSession
+	p := sm.activePane
 	sm.mu.Unlock()
 	// Clears the previous screen of the session.
 	if shouldInvalidate {
-		s.Invalidate()
+		p.Session.Invalidate()
 	}
 
-	s.Render()
+	p.Render()
 }
 
 func (sm *sessionManager) next() {
-	if len(sm.sessions) < 1 {
+	if len(sm.panes) < 1 {
 		return
 	}
 
 	sm.mu.Lock()
-	activeSession := sm.activeSession
+	activeSession := sm.activePane.Session
 	sm.mu.Unlock()
-	lastSessionID := len(sm.sessions) - 1
+	lastSessionID := len(sm.panes) - 1
 	currentSessionID := 0
-	for i := range sm.sessions {
-		if sm.sessions[i] == activeSession{
+	for i := range sm.panes {
+		if sm.panes[i].Session == activeSession {
 			currentSessionID = i + 1
 
 			if currentSessionID > lastSessionID {
@@ -209,9 +228,9 @@ func (sm *sessionManager) next() {
 		}
 	}
 
-	newSession := sm.sessions[currentSessionID]
-	sm.Select(newSession)
-	sm.uiDirty <- newSession
+	pane := sm.panes[currentSessionID]
+	sm.Select(pane)
+	sm.uiDirty <- *pane
 }
 
 func (sm *sessionManager) parseStdIn(data []byte) {
@@ -229,7 +248,7 @@ func (sm *sessionManager) parseStdIn(data []byte) {
 
 	if len(input) > 0 {
 		sm.mu.Lock()
-		sm.activeSession.Write(input)
+		sm.activePane.Session.Write(input)
 		sm.mu.Unlock()
 	}
 }
@@ -244,17 +263,17 @@ func (sm *sessionManager) handleHotkey(hotKey rune) {
 	}
 }
 
-func (sm *sessionManager) close(s Session) {
+func (sm *sessionManager) close(p Pane) {
 	sm.mu.Lock()
-	for i, sess := range sm.sessions {
-		if sess == s {
-			sm.sessions = append(sm.sessions[:i], sm.sessions[i+1:]...)
+	for i, pane := range sm.panes {
+		if pane == &p {
+			sm.panes = append(sm.panes[:i], sm.panes[i+1:]...)
 			break
 		}
 	}
 	sm.mu.Unlock()
 
-	s.Close()
+	p.Session.Close()
 	sm.next()
 }
 
@@ -272,7 +291,7 @@ func (sm *sessionManager) getSize(isSplit bool) (int, int) {
 
 func (sm *sessionManager) getSizeSplit() (int, int) {
 	rows, cols := sm.getSizeFull()
-	return rows, cols / 2 - 1
+	return rows, cols/2 - 1
 }
 
 func (sm *sessionManager) getSizeFull() (int, int) {

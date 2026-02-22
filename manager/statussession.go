@@ -45,7 +45,7 @@ func (s *StatusSession) Render() {
 	s.Write(s.buf.Bytes())
 }
 
-func (s *StatusSession) SetSize(cols, rows int) error {
+func (s *StatusSession) SetRect(cols, rows, x0, y0 int) error {
 	s.cols = cols
 	s.rows = rows
 	return nil

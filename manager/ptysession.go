@@ -21,6 +21,8 @@ type PtySession struct {
 	prevFrame map[int]string
 	prevX     int
 	prevY     int
+	colOffset int
+	rowOffset int
 	isModeAppCursor bool
 	isModeAppKeypad bool
 }
@@ -57,16 +59,20 @@ func (s *PtySession) WriteBackground(p []byte) (int, error) {
 	return s.Term.Write(p)
 }
 
-func (s *PtySession) SetSize(cols, rows int) error {
+func (s *PtySession) SetRect(cols, rows, collOffset, rowOffset int) error {
 	// It's important to forward the size of the terminal from the stdin
 	// to ps.Ptmx which generates the output. Otherwise ncurses apps
 	// will not be rendered correctly.
+	cols = cols - collOffset - 1
+	rows = rows - rowOffset - 1
 	err := pty.Setsize(s.ptmx, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)})
 	if err != nil {
 		return err
 	}
 
 	s.Term.Resize(cols, rows) // note: vt10x wants cols, then rows
+	s.colOffset = collOffset
+	s.rowOffset = rowOffset
 	return nil
 }
 
@@ -107,7 +113,7 @@ func (s *PtySession) Render() {
 		if !lineFound || prevLine != currentLine {
 			s.prevFrame[y] = currentLine
 			// fmt.Fprintf(os.Stdout, "\x1b[?7l") // Disable line wrapping
-			fmt.Fprintf(os.Stdout, "\x1b[%d;1H\x1b[2K%s", y+1, currentLine)
+			fmt.Fprintf(os.Stdout, "\x1b[%d;%dH\x1b[2K%s", y+s.rowOffset+1, s.colOffset+1, currentLine)
 			// fmt.Fprintf(os.Stdout, "\x1b[?7h") // Enable line wrapping
 		}
 
@@ -119,7 +125,7 @@ func (s *PtySession) Render() {
 	sb.WriteString(resetColors)
 	// Get the current cursor position and put the cursor in the correct place after rendering the terminal.
 	cursorPos := s.Term.Cursor()
-	fmt.Fprintf(&sb, "\x1b[%d;%dH", cursorPos.Y+1, cursorPos.X+1)
+	fmt.Fprintf(&sb, "\x1b[%d;%dH", cursorPos.Y+s.rowOffset+1, cursorPos.X+s.colOffset+1)
 	fmt.Print(sb.String())
 }
 
