@@ -35,7 +35,7 @@ func NewPane(id int, session Session, cols, rows int) *Pane {
 func (p *Pane) SetSize(cols, rows int) {
 	p.cols = cols
 	p.rows = rows
-	p.Session.SetRect(cols-2, rows-2, p.x0, p.y0)
+	p.Session.SetRect(cols, rows, p.x0, p.y0)
 }
 
 func (p *Pane) Render() {

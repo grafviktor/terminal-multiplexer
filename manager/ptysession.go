@@ -43,8 +43,12 @@ func NewPtySession(id int, cmd *exec.Cmd) (*PtySession, error) {
 
 func (s *PtySession) Invalidate() {
 	s.prevFrame = make(map[int]string)
-	clearAndHome := "\x1b[2J\x1b[H"
-	fmt.Print(clearAndHome)
+	// clearAndHome := "\x1b[2J\x1b[H"
+	_, rows := s.Term.Size()
+	for y := 0; y < rows; y++ {
+		s.clearLine("", y)
+	}
+	// fmt.Print(clearAndHome)
 }
 
 func (s *PtySession) Read(p []byte) (int, error) {
@@ -113,7 +117,10 @@ func (s *PtySession) Render() {
 		if !lineFound || prevLine != currentLine {
 			s.prevFrame[y] = currentLine
 			// fmt.Fprintf(os.Stdout, "\x1b[?7l") // Disable line wrapping
-			fmt.Fprintf(os.Stdout, "\x1b[%d;%dH\x1b[2K%s", y+s.rowOffset+1, s.colOffset+1, currentLine)
+			// \x1b[2K - Clear the line.
+			s.clearLine(currentLine, y)
+
+			// fmt.Fprintf(os.Stdout, "\x1b[%d;%dH\x1b[2K%s", y+s.rowOffset+1, s.colOffset+1, currentLine)
 			// fmt.Fprintf(os.Stdout, "\x1b[?7h") // Enable line wrapping
 		}
 
@@ -127,6 +134,16 @@ func (s *PtySession) Render() {
 	cursorPos := s.Term.Cursor()
 	fmt.Fprintf(&sb, "\x1b[%d;%dH", cursorPos.Y+s.rowOffset+1, cursorPos.X+s.colOffset+1)
 	fmt.Print(sb.String())
+}
+
+func (s *PtySession) clearLine(lineContent string, y int) {
+	sb := strings.Builder{}
+	sb.WriteString(lineContent)
+	cols, _ := s.Term.Size()
+	for x := 0; x < cols-len(lineContent)+1; x++ {
+		sb.WriteString(" ")
+	}
+	fmt.Fprintf(os.Stdout, "\x1b[%d;%dH%s", y+s.rowOffset+1, s.colOffset+1, sb.String())
 }
 
 func (s *PtySession) setTerminalMode() {
