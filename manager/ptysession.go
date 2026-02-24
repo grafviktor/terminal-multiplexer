@@ -44,11 +44,11 @@ func NewPtySession(id int, cmd *exec.Cmd) (*PtySession, error) {
 func (s *PtySession) Invalidate() {
 	s.prevFrame = make(map[int]string)
 	// clearAndHome := "\x1b[2J\x1b[H"
+	// fmt.Print(clearAndHome)
 	_, rows := s.Term.Size()
 	for y := 0; y < rows; y++ {
 		s.clearLine("", y)
 	}
-	// fmt.Print(clearAndHome)
 }
 
 func (s *PtySession) Read(p []byte) (int, error) {
@@ -119,8 +119,6 @@ func (s *PtySession) Render() {
 			// fmt.Fprintf(os.Stdout, "\x1b[?7l") // Disable line wrapping
 			// \x1b[2K - Clear the line.
 			s.clearLine(currentLine, y)
-
-			// fmt.Fprintf(os.Stdout, "\x1b[%d;%dH\x1b[2K%s", y+s.rowOffset+1, s.colOffset+1, currentLine)
 			// fmt.Fprintf(os.Stdout, "\x1b[?7h") // Enable line wrapping
 		}
 

@@ -18,21 +18,18 @@ const hotKey = 0x01 // Ctrl-A
 type sessionManager struct {
 	nextSessionID int
 	sessionWg     sync.WaitGroup
-	uiDirty       chan Pane
+	uiDirty       chan struct{}
 
 	mu sync.Mutex
-	// activeSession Session
-	// sessions      []Session
 	activePane *Pane
 	panes      []*Pane
 }
 
 func New() *sessionManager {
 	sm := &sessionManager{
-		// sessions:  []Session{},
 		panes:     []*Pane{},
 		sessionWg: sync.WaitGroup{},
-		uiDirty:   make(chan Pane, 1),
+		uiDirty:   make(chan struct{}, 1),
 	}
 
 	sm.createServicePane()
@@ -84,21 +81,6 @@ func (sm *sessionManager) createSessionPane(argv []string, rows, cols int) (*Pan
 	return p, nil
 }
 
-// func (sm *sessionManager) Select(s Session) {
-// 	if ss, ok := s.(*StatusSession); ok {
-// 		sessionInfo := SessionInfo{
-// 			sessionCount: len(sm.sessions) - 1,
-// 		}
-// 		ss.Refresh(sessionInfo) // exclude status session
-// 	}
-
-// 	sm.mu.Lock()
-// 	sm.activeSession = s
-// 	sm.mu.Unlock()
-
-// 	sm.render(true)
-// }
-
 func (sm *sessionManager) Select(p *Pane) {
 	if ss, ok := p.Session.(*StatusSession); ok {
 		sessionInfo := SessionInfo{
@@ -125,10 +107,7 @@ func (sm *sessionManager) runStdInReader() {
 			}
 
 			sm.parseStdIn(buf[:n])
-			sm.mu.Lock()
-			activePane := sm.activePane
-			sm.mu.Unlock()
-			sm.uiDirty <- *activePane
+			sm.uiDirty <- struct{}{}
 		}
 	}()
 }
@@ -145,7 +124,7 @@ func (sm *sessionManager) runStdOutReader(p Pane) {
 
 			data := bytes.Clone(tmp[:n])
 			p.Session.WriteBackground(data)
-			sm.uiDirty <- p
+			sm.uiDirty <- struct{}{}
 		}
 	}()
 }
@@ -173,23 +152,18 @@ func (sm *sessionManager) runRenderer() {
 	go func() {
 		for {
 			// Wait for something to be written to the screen
-			p := <-sm.uiDirty
+			<-sm.uiDirty
 
 			for {
 				select {
-				case p = <-sm.uiDirty:
+				case <-sm.uiDirty:
 				default:
 					goto RENDER
 				}
 			}
 
 		RENDER:
-			sm.mu.Lock()
-			activePane := sm.activePane
-			sm.mu.Unlock()
-			if p == *activePane {
-				sm.render(false)
-			}
+			sm.render(false)
 		}
 	}()
 }
@@ -230,7 +204,7 @@ func (sm *sessionManager) next() {
 
 	pane := sm.panes[currentSessionID]
 	sm.Select(pane)
-	sm.uiDirty <- *pane
+	sm.uiDirty <- struct{}{}
 }
 
 func (sm *sessionManager) parseStdIn(data []byte) {

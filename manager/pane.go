@@ -27,11 +27,6 @@ func NewPane(id int, session Session, cols, rows int) *Pane {
 	}
 }
 
-// func (p *Pane) SetPosition(x, y int) {
-// 	p.x0 = x
-// 	p.y0 = y
-// }
-
 func (p *Pane) SetSize(cols, rows int) {
 	p.cols = cols
 	p.rows = rows

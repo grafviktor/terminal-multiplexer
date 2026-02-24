@@ -25,6 +25,12 @@ func main() {
 	}
 	sm.Select(pane)
 
+	pane, err = sm.Create(true, []string{"/bin/zsh"})
+	if err != nil {
+		log.Fatalf("failed to create session: %v", err)
+	}
+	sm.Select(pane)
+
 	// Put terminal into raw mode
 	terminalPtr := int(os.Stdin.Fd())
 	if term.IsTerminal(terminalPtr) {
