@@ -3,27 +3,27 @@ package manager
 import "fmt"
 
 type Pane struct {
-	ID         int
-	Session    Session
-	cols int
-	rows int
-	x0 int
-	y0 int
+	ID        int
+	Session   Session
+	cols      int
+	rows      int
+	x0        int
+	y0        int
 	isFocused bool
 }
 
-func NewPane(id int, session Session, cols, rows int) *Pane {
-	offsetCols := 1
-	offsetRows := 1
+func NewPane(id int, session Session, cols, rows, offsetCols, offsetRows int) *Pane {
+	offsetCols += 1
+	offsetRows += 1
 	session.SetRect(cols, rows, offsetCols, offsetRows)
 
 	return &Pane{
-		ID: id,
+		ID:      id,
 		Session: session,
-		cols: cols,
-		rows: rows,
-		x0: offsetCols,
-		y0: offsetRows,
+		cols:    cols,
+		rows:    rows,
+		x0:      offsetCols,
+		y0:      offsetRows,
 	}
 }
 

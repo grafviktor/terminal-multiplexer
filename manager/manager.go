@@ -20,16 +20,18 @@ type sessionManager struct {
 	sessionWg     sync.WaitGroup
 	uiDirty       chan struct{}
 
-	mu sync.Mutex
-	activePane *Pane
-	panes      []*Pane
+	mu            sync.Mutex
+	activePane    *Pane
+	panes         []*Pane
+	panePosionMap map[int]PanePosition
 }
 
 func New() *sessionManager {
 	sm := &sessionManager{
-		panes:     []*Pane{},
-		sessionWg: sync.WaitGroup{},
-		uiDirty:   make(chan struct{}, 1),
+		panes:         []*Pane{},
+		sessionWg:     sync.WaitGroup{},
+		uiDirty:       make(chan struct{}, 1),
+		panePosionMap: make(map[int]PanePosition),
 	}
 
 	sm.createServicePane()
@@ -41,28 +43,30 @@ func New() *sessionManager {
 }
 
 func (sm *sessionManager) createServicePane() {
-	rows, cols := sm.getSize(false)
+	rows, cols := sm.getSize(PanePositionEnum.FullScreen)
 	s := &StatusSession{cols: cols, rows: rows}
 	p := &Pane{ID: sm.nextSessionID, Session: s}
 	sm.panes = append(sm.panes, p)
 	sm.Select(p)
 }
 
-func (sm *sessionManager) Create(isSplit bool, argv []string) (*Pane, error) {
-	rows, cols := sm.getSize(isSplit)
-	return sm.createSessionPane(argv, rows, cols)
-}
-
-func (sm *sessionManager) createSessionPane(argv []string, rows, cols int) (*Pane, error) {
+func (sm *sessionManager) Create(position PanePosition, argv []string) (*Pane, error) {
+	rows, cols := sm.getSize(position)
 	cmd := exec.Command(argv[0], argv[1:]...)
 	session, err := NewPtySession(sm.nextSessionID, cmd)
 	if err != nil {
 		return nil, err
 	}
 
+	xOffset := 0
+	if position == PanePositionEnum.Right {
+		xOffset += cols
+	}
+
 	// session.SetSize(cols, rows)
-	p := NewPane(session.ID, session, cols, rows)
+	p := NewPane(session.ID, session, cols, rows, xOffset, 0)
 	sm.panes = append(sm.panes, p)
+	sm.panePosionMap[session.ID] = position
 	sm.runStdOutReader(*p)
 
 	ready := make(chan any, 1)
@@ -135,7 +139,7 @@ func (sm *sessionManager) runWindowSizeWatcher() {
 	go func() {
 		for range ch {
 			for _, p := range sm.panes {
-				rows, cols := sm.getSize(false)
+				rows, cols := sm.getSize(sm.panePosionMap[p.ID])
 				p.SetSize(cols, rows)
 			}
 
@@ -255,8 +259,8 @@ func (sm *sessionManager) Wait() {
 	sm.sessionWg.Wait()
 }
 
-func (sm *sessionManager) getSize(isSplit bool) (int, int) {
-	if isSplit {
+func (sm *sessionManager) getSize(position PanePosition) (int, int) {
+	if position != PanePositionEnum.FullScreen {
 		return sm.getSizeSplit()
 	}
 
