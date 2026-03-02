@@ -1,13 +1,13 @@
 package manager
 
-type PanePosition int
+type PanePosition string
 
 var PanePositionEnum = struct {
 	FullScreen PanePosition
 	Left       PanePosition
 	Right      PanePosition
 }{
-	FullScreen: 0,
-	Left:       1,
-	Right:      2,
+	FullScreen: "FULL_SCREEN",
+	Left:       "LEFT",
+	Right:      "RIGHT",
 }

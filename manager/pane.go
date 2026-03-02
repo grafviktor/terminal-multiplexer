@@ -3,34 +3,45 @@ package manager
 import "fmt"
 
 type Pane struct {
-	ID        int
-	Session   Session
-	cols      int
-	rows      int
-	x0        int
-	y0        int
-	isFocused bool
+	ID         int
+	Session    Session
+	cols       int
+	rows       int
+	offsetCols int
+	offsetRows int
+	isFocused  bool
 }
 
 func NewPane(id int, session Session, cols, rows, offsetCols, offsetRows int) *Pane {
+	// It's required to create offset
+	// for left pane because otherwise it will draw border outside of the left border of the screen
+	// for right pane because we need margin between panes
 	offsetCols += 1
 	offsetRows += 1
-	session.SetRect(cols, rows, offsetCols, offsetRows)
+	// session.SetRect(cols, rows, offsetCols, offsetRows)
 
-	return &Pane{
-		ID:      id,
-		Session: session,
-		cols:    cols,
-		rows:    rows,
-		x0:      offsetCols,
-		y0:      offsetRows,
+	p := &Pane{
+		ID:         id,
+		Session:    session,
+		cols:       cols,
+		rows:       rows,
+		offsetCols: offsetCols,
+		offsetRows: offsetRows,
 	}
+
+	p.setSessionSize()
+	return p
 }
 
 func (p *Pane) SetSize(cols, rows int) {
 	p.cols = cols
 	p.rows = rows
-	p.Session.SetRect(cols, rows, p.x0, p.y0)
+	p.setSessionSize()
+}
+
+func (p *Pane) setSessionSize() {
+	// extract borders from cols and rows
+	p.Session.SetRect(p.cols-2, p.rows-2, p.offsetCols, p.offsetRows)
 }
 
 func (p *Pane) Render() {
@@ -51,17 +62,17 @@ func (p *Pane) Render() {
 			isHorizontalBorder := r == 0 || r == p.rows-1
 
 			if isLeftTopCorner {
-				fmt.Printf(leftTopCorner, r+1, c+1)
+				fmt.Printf(leftTopCorner, r+p.offsetRows, c+p.offsetCols)
 			} else if isRightTopCorner {
-				fmt.Printf(rightTopCorner, r+1, c+1)
+				fmt.Printf(rightTopCorner, r+p.offsetRows, c+p.offsetCols)
 			} else if isLeftBottomCorner {
-				fmt.Printf(leftBottomCorner, r+1, c+1)
+				fmt.Printf(leftBottomCorner, r+p.offsetRows, c+p.offsetCols)
 			} else if isRightBottomCorner {
-				fmt.Printf(rightBottomCorner, r+1, c+1)
+				fmt.Printf(rightBottomCorner, r+p.offsetRows, c+p.offsetCols)
 			} else if isVerticalBorder {
-				fmt.Printf(verticalLine, r+1, c+1)
+				fmt.Printf(verticalLine, r+p.offsetRows, c+p.offsetCols)
 			} else if isHorizontalBorder {
-				fmt.Printf(horizontalLine, r+1, c+1)
+				fmt.Printf(horizontalLine, r+p.offsetRows, c+p.offsetCols)
 			}
 		}
 	}

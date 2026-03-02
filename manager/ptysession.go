@@ -14,15 +14,15 @@ import (
 var _ Session = (*PtySession)(nil)
 
 type PtySession struct {
-	ID        int
-	Term      vt10x.Terminal
-	ptmx      *os.File
-	buf       bytes.Buffer
-	prevFrame map[int]string
-	prevX     int
-	prevY     int
-	colOffset int
-	rowOffset int
+	ID              int
+	Term            vt10x.Terminal
+	ptmx            *os.File
+	buf             bytes.Buffer
+	prevFrame       map[int]string
+	prevX           int
+	prevY           int
+	colOffset       int
+	rowOffset       int
 	isModeAppCursor bool
 	isModeAppKeypad bool
 }
@@ -64,11 +64,17 @@ func (s *PtySession) WriteBackground(p []byte) (int, error) {
 }
 
 func (s *PtySession) SetRect(cols, rows, collOffset, rowOffset int) error {
+
+	// cols = cols - collOffset - 1
+	// rows = rows - rowOffset - 1
+	// cols = cols - collOffset
+	// rows = rows - rowOffset
+	// cols = cols - 2
+	// rows = rows - 2
+
 	// It's important to forward the size of the terminal from the stdin
 	// to ps.Ptmx which generates the output. Otherwise ncurses apps
 	// will not be rendered correctly.
-	cols = cols - collOffset - 1
-	rows = rows - rowOffset - 1
 	err := pty.Setsize(s.ptmx, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)})
 	if err != nil {
 		return err
@@ -148,8 +154,8 @@ func (s *PtySession) setTerminalMode() {
 	s.Term.Lock()
 	mode := s.Term.Mode()
 	s.Term.Unlock()
-	isModeAppCursor := mode & vt10x.ModeAppCursor != 0
-	isModeAppKeypad := mode & vt10x.ModeAppKeypad != 0
+	isModeAppCursor := mode&vt10x.ModeAppCursor != 0
+	isModeAppKeypad := mode&vt10x.ModeAppKeypad != 0
 
 	if s.isModeAppCursor != isModeAppCursor {
 		s.isModeAppCursor = isModeAppCursor

@@ -58,13 +58,14 @@ func (sm *sessionManager) Create(position PanePosition, argv []string) (*Pane, e
 		return nil, err
 	}
 
-	xOffset := 0
+	offsetCols := 0
 	if position == PanePositionEnum.Right {
-		xOffset += cols
+		offsetCols += cols
 	}
+	offsetRows := 0
 
 	// session.SetSize(cols, rows)
-	p := NewPane(session.ID, session, cols, rows, xOffset, 0)
+	p := NewPane(session.ID, session, cols, rows, offsetCols, offsetRows)
 	sm.panes = append(sm.panes, p)
 	sm.panePosionMap[session.ID] = position
 	sm.runStdOutReader(*p)
@@ -269,7 +270,7 @@ func (sm *sessionManager) getSize(position PanePosition) (int, int) {
 
 func (sm *sessionManager) getSizeSplit() (int, int) {
 	rows, cols := sm.getSizeFull()
-	return rows, cols/2 - 1
+	return rows, cols / 2
 }
 
 func (sm *sessionManager) getSizeFull() (int, int) {
