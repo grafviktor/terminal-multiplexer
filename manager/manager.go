@@ -20,18 +20,18 @@ type sessionManager struct {
 	sessionWg     sync.WaitGroup
 	uiDirty       chan struct{}
 
-	mu            sync.Mutex
-	activePane    *Pane
-	panes         []*Pane
-	panePosionMap map[int]PanePosition
+	mu              sync.Mutex
+	focusedPane     *Pane
+	panes           []*Pane
+	panePositionMap map[int]PanePosition
 }
 
 func New() *sessionManager {
 	sm := &sessionManager{
-		panes:         []*Pane{},
-		sessionWg:     sync.WaitGroup{},
-		uiDirty:       make(chan struct{}, 1),
-		panePosionMap: make(map[int]PanePosition),
+		panes:           []*Pane{},
+		sessionWg:       sync.WaitGroup{},
+		uiDirty:         make(chan struct{}, 1),
+		panePositionMap: make(map[int]PanePosition),
 	}
 
 	sm.createServicePane()
@@ -53,7 +53,7 @@ func (sm *sessionManager) createServicePane() {
 func (sm *sessionManager) Create(position PanePosition, argv []string) (*Pane, error) {
 	rows, cols := sm.getSize(position)
 	cmd := exec.Command(argv[0], argv[1:]...)
-	session, err := NewPtySession(sm.nextSessionID, cmd)
+	session, err := NewPtySession(cmd)
 	if err != nil {
 		return nil, err
 	}
@@ -65,9 +65,9 @@ func (sm *sessionManager) Create(position PanePosition, argv []string) (*Pane, e
 	offsetRows := 0
 
 	// session.SetSize(cols, rows)
-	p := NewPane(session.ID, session, cols, rows, offsetCols, offsetRows)
+	p := NewPane(sm.nextSessionID, session, cols, rows, offsetCols, offsetRows)
 	sm.panes = append(sm.panes, p)
-	sm.panePosionMap[session.ID] = position
+	sm.panePositionMap[p.ID] = position
 	sm.runStdOutReader(*p)
 
 	ready := make(chan any, 1)
@@ -75,7 +75,7 @@ func (sm *sessionManager) Create(position PanePosition, argv []string) (*Pane, e
 		ready <- struct{}{}
 		waitErr := cmd.Wait()
 		if waitErr != nil {
-			log.Printf("session %d ended with error: %v", session.ID, waitErr)
+			log.Printf("session %d ended with error: %v", p.ID, waitErr)
 		}
 		defer sm.close(*p)
 	})
@@ -95,7 +95,7 @@ func (sm *sessionManager) Select(p *Pane) {
 	}
 
 	sm.mu.Lock()
-	sm.activePane = p
+	sm.focusedPane = p
 	sm.mu.Unlock()
 
 	sm.render(true)
@@ -140,15 +140,15 @@ func (sm *sessionManager) runWindowSizeWatcher() {
 	go func() {
 		for range ch {
 			for _, p := range sm.panes {
-				rows, cols := sm.getSize(sm.panePosionMap[p.ID])
+				rows, cols := sm.getSize(sm.panePositionMap[p.ID])
 				p.SetSize(cols, rows)
 			}
 
 			sm.mu.Lock()
-			activePane := sm.activePane
+			focused := sm.focusedPane
 			sm.mu.Unlock()
-			activePane.Session.Invalidate()
-			activePane.Render()
+			focused.Session.Invalidate()
+			focused.Render()
 		}
 	}()
 }
@@ -175,7 +175,7 @@ func (sm *sessionManager) runRenderer() {
 
 func (sm *sessionManager) render(shouldInvalidate bool) {
 	sm.mu.Lock()
-	p := sm.activePane
+	p := sm.focusedPane
 	sm.mu.Unlock()
 	// Clears the previous screen of the session.
 	if shouldInvalidate {
@@ -191,7 +191,7 @@ func (sm *sessionManager) next() {
 	}
 
 	sm.mu.Lock()
-	activeSession := sm.activePane.Session
+	activeSession := sm.focusedPane.Session
 	sm.mu.Unlock()
 	lastSessionID := len(sm.panes) - 1
 	currentSessionID := 0
@@ -227,7 +227,7 @@ func (sm *sessionManager) parseStdIn(data []byte) {
 
 	if len(input) > 0 {
 		sm.mu.Lock()
-		sm.activePane.Session.Write(input)
+		sm.focusedPane.Session.Write(input)
 		sm.mu.Unlock()
 	}
 }

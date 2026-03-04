@@ -14,7 +14,7 @@ import (
 var _ Session = (*PtySession)(nil)
 
 type PtySession struct {
-	ID              int
+	// ID              int
 	Term            vt10x.Terminal
 	ptmx            *os.File
 	buf             bytes.Buffer
@@ -27,14 +27,14 @@ type PtySession struct {
 	isModeAppKeypad bool
 }
 
-func NewPtySession(id int, cmd *exec.Cmd) (*PtySession, error) {
+func NewPtySession(cmd *exec.Cmd) (*PtySession, error) {
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
 		return nil, err
 	}
 
 	return &PtySession{
-		ID:        id,
+		// ID:        id,
 		Term:      vt10x.New(),
 		ptmx:      ptmx,
 		prevFrame: make(map[int]string),
