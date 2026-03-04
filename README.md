@@ -50,3 +50,21 @@ Here is the additional info:
 | OS   | \x1b]      |
 | BEL  | \x07       |
 | ST   | \x1b\      |
+
+## Logical model ##
+
+Window contains layout (LayoutCompositor)
+Pane prints border set underlying terminal rect
+Terminal mantains pty connection and renders terminal
+
+```
+Manager
+   ├── Window
+   │   └── Pane
+   │       └── Terminal
+   └── Window
+       ├── Pane
+       │   └── Terminal
+       └── Pane
+           └── Terminal
+```
