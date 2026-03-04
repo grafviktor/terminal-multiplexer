@@ -3,9 +3,7 @@ package manager
 import (
 	"bytes"
 	"fmt"
-	"log"
 	"os"
-	"os/exec"
 	"os/signal"
 	"sync"
 	"syscall"
@@ -51,38 +49,24 @@ func (sm *sessionManager) createServicePane() {
 }
 
 func (sm *sessionManager) Create(position PanePosition, argv []string) (*Pane, error) {
-	rows, cols := sm.getSize(position)
-	cmd := exec.Command(argv[0], argv[1:]...)
-	session, err := NewPtySession(cmd)
+	p, err := NewPane(&sm.sessionWg, sm.nextSessionID, argv)
 	if err != nil {
 		return nil, err
 	}
 
+	rows, cols := sm.getSize(position)
 	offsetCols := 0
 	if position == PanePositionEnum.Right {
 		offsetCols += cols
 	}
 	offsetRows := 0
+	p.SetRect(cols, rows, offsetCols, offsetRows)
 
-	// session.SetSize(cols, rows)
-	p := NewPane(sm.nextSessionID, session, cols, rows, offsetCols, offsetRows)
 	sm.panes = append(sm.panes, p)
 	sm.panePositionMap[p.ID] = position
+	sm.nextSessionID++
 	sm.runStdOutReader(*p)
 
-	ready := make(chan any, 1)
-	sm.sessionWg.Go(func() {
-		ready <- struct{}{}
-		waitErr := cmd.Wait()
-		if waitErr != nil {
-			log.Printf("session %d ended with error: %v", p.ID, waitErr)
-		}
-		defer sm.close(*p)
-	})
-
-	// Wait session goroutine to start
-	<-ready
-	sm.nextSessionID++
 	return p, nil
 }
 
@@ -240,20 +224,6 @@ func (sm *sessionManager) handleHotkey(hotKey rune) {
 	if hotKey == 0x01 {
 		sm.next()
 	}
-}
-
-func (sm *sessionManager) close(p Pane) {
-	sm.mu.Lock()
-	for i, pane := range sm.panes {
-		if pane == &p {
-			sm.panes = append(sm.panes[:i], sm.panes[i+1:]...)
-			break
-		}
-	}
-	sm.mu.Unlock()
-
-	p.Session.Close()
-	sm.next()
 }
 
 func (sm *sessionManager) Wait() {

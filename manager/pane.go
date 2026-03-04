@@ -1,36 +1,71 @@
 package manager
 
-import "fmt"
+import (
+	"fmt"
+	"log"
+	"os/exec"
+	"sync"
+)
 
 type Pane struct {
-	ID         int
-	Session    Session
-	cols       int
-	rows       int
-	offsetCols int
-	offsetRows int
-	isFocused  bool
+	ID           int
+	Session      Session
+	cols         int
+	rows         int
+	offsetCols   int
+	offsetRows   int
+	isFocused    bool
+	IsTerminated bool
 }
 
-func NewPane(id int, session Session, cols, rows, offsetCols, offsetRows int) *Pane {
+// func NewPane(wg *sync.WaitGroup, id int, argv []string) (*Pane, error) {
+// 	p := &Pane{
+// 		ID: id,
+// 	}
+
+// 	return p, nil
+// }
+
+func NewPane(wg *sync.WaitGroup, id int, argv []string) (*Pane, error) {
+	cmd := exec.Command(argv[0], argv[1:]...)
+	session, err := NewPtySession(cmd)
+	if err != nil {
+		return nil, err
+	}
+
+	p := &Pane{
+		ID:      id,
+		Session: session,
+	}
+
+	ready := make(chan any, 1)
+	wg.Go(func() {
+		ready <- struct{}{}
+		waitErr := cmd.Wait()
+		if waitErr != nil {
+			log.Printf("session %d ended with error: %v", p.ID, waitErr)
+		}
+		session.Close()
+		p.IsTerminated = true
+		p.Render()
+		// fmt.Printf("\x1b[%d;%dH Exited", p.offsetRows, p.offsetCols)
+	})
+
+	// Wait session goroutine to start
+	<-ready
+	return p, nil
+}
+
+func (p *Pane) SetRect(cols, rows, offsetCols, offsetRows int) {
 	// It's required to create offset
 	// for left pane because otherwise it will draw border outside of the left border of the screen
 	// for right pane because we need margin between panes
 	offsetCols += 1
 	offsetRows += 1
-	// session.SetRect(cols, rows, offsetCols, offsetRows)
 
-	p := &Pane{
-		ID:         id,
-		Session:    session,
-		cols:       cols,
-		rows:       rows,
-		offsetCols: offsetCols,
-		offsetRows: offsetRows,
-	}
-
-	p.setSessionSize()
-	return p
+	p.offsetCols = offsetCols
+	p.offsetRows = offsetRows
+	p.SetSize(cols, rows)
 }
 
 func (p *Pane) SetSize(cols, rows int) {
@@ -45,6 +80,13 @@ func (p *Pane) setSessionSize() {
 }
 
 func (p *Pane) Render() {
+	if p.IsTerminated {
+		fmt.Printf("\x1b[?25l")
+		fmt.Printf("\x1b[31;1m")
+	} else {
+		fmt.Printf("\x1b[?25h")
+	}
+
 	leftTopCorner := "\x1b[%d;%dH┌"
 	rightTopCorner := "\x1b[%d;%dH┐"
 	leftBottomCorner := "\x1b[%d;%dH└"
@@ -75,6 +117,11 @@ func (p *Pane) Render() {
 				fmt.Printf(horizontalLine, r+p.offsetRows, c+p.offsetCols)
 			}
 		}
+	}
+
+	if p.IsTerminated {
+		fmt.Printf("\x1b[%d;%dH Exited", p.offsetRows+p.rows/2, p.offsetCols+p.cols/2-3)
+		fmt.Printf("\x1b[0m")
 	}
 
 	p.Session.Render()

@@ -34,7 +34,6 @@ func NewPtySession(cmd *exec.Cmd) (*PtySession, error) {
 	}
 
 	return &PtySession{
-		// ID:        id,
 		Term:      vt10x.New(),
 		ptmx:      ptmx,
 		prevFrame: make(map[int]string),

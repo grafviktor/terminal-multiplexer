@@ -38,6 +38,9 @@ written: CSI Pm m
 actual:  \x1b[31;1m   (red + bold)
          \x1b[0m      (reset)
 
+         \x1b[?25l (hide cursor)
+         \x1b[?25h (show cursor)
+
 written: CSI Ps ; Ps H
 actual:  \x1b[10;20H
 ```
