@@ -19,19 +19,19 @@ func main() {
 	// }
 	// sm.Select(pane)
 
-	pane, err := sm.Create(manager.PanePositionEnum.FullScreen, []string{"/bin/zsh"})
+	pane, err := sm.Create(0, manager.PanePositionEnum.FullScreen, []string{"/bin/zsh"})
 	if err != nil {
 		log.Fatalf("failed to create session: %v", err)
 	}
 	sm.Select(pane)
 
-	pane, err = sm.Create(manager.PanePositionEnum.Left, []string{"/bin/zsh"})
+	pane, err = sm.Create(1, manager.PanePositionEnum.Left, []string{"/bin/zsh"})
 	if err != nil {
 		log.Fatalf("failed to create session: %v", err)
 	}
 	sm.Select(pane)
 
-	pane, err = sm.Create(manager.PanePositionEnum.Right, []string{"/bin/zsh"})
+	pane, err = sm.Create(1, manager.PanePositionEnum.Right, []string{"/bin/zsh"})
 	if err != nil {
 		log.Fatalf("failed to create session: %v", err)
 	}

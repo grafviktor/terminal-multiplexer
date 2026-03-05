@@ -2,7 +2,6 @@ package manager
 
 import (
 	"bytes"
-	"fmt"
 	"os"
 	"os/signal"
 	"sync"
@@ -14,14 +13,15 @@ import (
 const hotKey = 0x01 // Ctrl-A
 
 type sessionManager struct {
-	nextSessionID int
-	sessionWg     sync.WaitGroup
-	uiDirty       chan struct{}
-
-	mu              sync.Mutex
-	focusedPane     *Pane
-	panes           []*Pane
+	nextSessionID   int
+	sessionWg       sync.WaitGroup
+	uiDirty         chan struct{}
 	panePositionMap map[int]PanePosition
+	windows         map[int]Window
+
+	mu          sync.Mutex
+	focusedPane *Pane
+	panes       []*Pane
 }
 
 func New() *sessionManager {
@@ -30,6 +30,7 @@ func New() *sessionManager {
 		sessionWg:       sync.WaitGroup{},
 		uiDirty:         make(chan struct{}, 1),
 		panePositionMap: make(map[int]PanePosition),
+		windows:         make(map[int]Window),
 	}
 
 	sm.createServicePane()
@@ -41,14 +42,16 @@ func New() *sessionManager {
 }
 
 func (sm *sessionManager) createServicePane() {
-	rows, cols := sm.getSize(PanePositionEnum.FullScreen)
+	// rows, cols := sm.getSize(PanePositionEnum.FullScreen)
+	rows, cols, _ := pty.Getsize(os.Stdin)
 	s := &StatusSession{cols: cols, rows: rows}
 	p := &Pane{ID: sm.nextSessionID, Session: s}
 	sm.panes = append(sm.panes, p)
 	sm.Select(p)
 }
 
-func (sm *sessionManager) Create(position PanePosition, argv []string) (*Pane, error) {
+func (sm *sessionManager) Create(windowId int, position PanePosition, argv []string) (*Pane, error) {
+	// TODO: Move pane creation logic to window.go
 	p, err := NewPane(&sm.sessionWg, sm.nextSessionID, argv)
 	if err != nil {
 		return nil, err
@@ -66,6 +69,13 @@ func (sm *sessionManager) Create(position PanePosition, argv []string) (*Pane, e
 	sm.panePositionMap[p.ID] = position
 	sm.nextSessionID++
 	sm.runStdOutReader(*p)
+
+	w, ok := sm.windows[windowId]
+	if !ok {
+		w = Window{ID: windowId}
+		sm.windows[windowId] = w
+	}
+	w.AddPane(p)
 
 	return p, nil
 }
@@ -124,6 +134,7 @@ func (sm *sessionManager) runWindowSizeWatcher() {
 	go func() {
 		for range ch {
 			for _, p := range sm.panes {
+				// TODO: Notify windows about size change
 				rows, cols := sm.getSize(sm.panePositionMap[p.ID])
 				p.SetSize(cols, rows)
 			}
@@ -230,6 +241,7 @@ func (sm *sessionManager) Wait() {
 	sm.sessionWg.Wait()
 }
 
+/*
 func (sm *sessionManager) getSize(position PanePosition) (int, int) {
 	if position != PanePositionEnum.FullScreen {
 		return sm.getSizeSplit()
@@ -252,3 +264,4 @@ func (sm *sessionManager) getSizeFull() (int, int) {
 
 	return rows, cols
 }
+*/
