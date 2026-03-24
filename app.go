@@ -12,7 +12,7 @@ import (
 )
 
 func main() {
-	sm := manager.New()
+	sm := manager.NewManager()
 	// pane, err := sm.Create(manager.PanePositionEnum.FullScreen, []string{"bash", "-c", "while true; do date; sleep 1 ;done"})
 	// if err != nil {
 	// 	log.Fatalf("failed to create session: %v", err)
