@@ -10,13 +10,15 @@ import (
 )
 
 type Window struct {
-	ID    int
-	panes []*Pane
+	ID int
 	// panePositionMap maps pane ID to its position in the window (e.g., left, right, full-screen).
 	panePositionMap map[int]PanePosition
 	nextPaneID      int
 	sessionWg       *sync.WaitGroup
 	uiDirty         chan struct{}
+	mu              sync.Mutex
+	focusedPane     *Pane
+	panes           []*Pane
 }
 
 func NewWindow(sessionWg *sync.WaitGroup, windowId int) *Window {
@@ -75,10 +77,10 @@ func (w *Window) SetSize(cols, rows int) {
 
 func (w *Window) getSize() (cols, rows int) {
 	if len(w.panes) == 0 {
-		return w.getSizeSplit()
+		return w.getSizeFull()
 
 	}
-	return w.getSizeFull()
+	return w.getSizeSplit()
 
 }
 
@@ -114,4 +116,58 @@ func (w *Window) runStdOutReader() {
 			}
 		}
 	}()
+}
+
+func (w *Window) Select(p *Pane) {
+	if ss, ok := p.Session.(*StatusSession); ok {
+		sessionInfo := SessionInfo{
+			sessionCount: len(w.panes) - 1,
+		}
+		ss.Refresh(sessionInfo) // exclude status session
+	}
+
+	w.mu.Lock()
+	w.focusedPane = p
+	w.mu.Unlock()
+
+	w.render(true)
+}
+
+func (w *Window) render(shouldInvalidate bool) {
+	w.mu.Lock()
+	p := w.focusedPane
+	w.mu.Unlock()
+	// Clears the previous screen of the session.
+	if shouldInvalidate {
+		p.Session.Invalidate()
+	}
+
+	p.Render()
+}
+
+func (w *Window) next() {
+	if len(w.panes) < 1 {
+		return
+	}
+
+	w.mu.Lock()
+	activeSession := w.focusedPane.Session
+	w.mu.Unlock()
+	lastSessionID := len(w.panes) - 1
+	currentSessionID := 0
+	for i := range w.panes {
+		if w.panes[i].Session == activeSession {
+			currentSessionID = i + 1
+
+			if currentSessionID > lastSessionID {
+				currentSessionID = 0
+			}
+
+			break
+		}
+	}
+
+	pane := w.panes[currentSessionID]
+	w.Select(pane)
+	w.uiDirty <- struct{}{}
 }

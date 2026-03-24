@@ -19,23 +19,23 @@ func main() {
 	// }
 	// sm.Select(pane)
 
-	pane, err := sm.Create(0, manager.PanePositionEnum.FullScreen, []string{"/bin/zsh"})
+	window, err := sm.Create(1, manager.PanePositionEnum.FullScreen, []string{"/bin/zsh"})
 	if err != nil {
 		log.Fatalf("failed to create session: %v", err)
 	}
-	sm.Select(pane)
+	sm.Select(window)
 
-	pane, err = sm.Create(1, manager.PanePositionEnum.Left, []string{"/bin/zsh"})
-	if err != nil {
-		log.Fatalf("failed to create session: %v", err)
-	}
-	sm.Select(pane)
+	// window, err = sm.Create(1, manager.PanePositionEnum.Left, []string{"/bin/zsh"})
+	// if err != nil {
+	// 	log.Fatalf("failed to create session: %v", err)
+	// }
+	// sm.Select(window)
 
-	pane, err = sm.Create(1, manager.PanePositionEnum.Right, []string{"/bin/zsh"})
-	if err != nil {
-		log.Fatalf("failed to create session: %v", err)
-	}
-	sm.Select(pane)
+	// window, err = sm.Create(1, manager.PanePositionEnum.Right, []string{"/bin/zsh"})
+	// if err != nil {
+	// 	log.Fatalf("failed to create session: %v", err)
+	// }
+	// sm.Select(window)
 
 	// Put terminal into raw mode
 	terminalPtr := int(os.Stdin.Fd())

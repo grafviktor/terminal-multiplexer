@@ -12,26 +12,29 @@ import (
 const hotKey = 0x01 // Ctrl-A
 
 type sessionManager struct {
-	nextSessionID   int
+	// nextSessionID   int
+	nextWindowID    int
 	sessionWg       sync.WaitGroup
 	uiDirty         chan struct{}
 	panePositionMap map[int]PanePosition
-	windows         map[int]*Window
 
-	mu          sync.Mutex
-	focusedPane *Pane
-	panes       []*Pane
+	mu sync.Mutex
+	// focusedPane   *Pane
+	// panes         []*Pane
+	focusedWindow *Window
+	windows       map[int]*Window
 }
 
 func NewManager() *sessionManager {
 	sm := &sessionManager{
-		panes:     []*Pane{},
+		// panes:     []*Pane{},
 		sessionWg: sync.WaitGroup{},
 		uiDirty:   make(chan struct{}, 1),
 		windows:   make(map[int]*Window),
 	}
 
-	sm.createServicePane()
+	// sm.createServicePane()
+	sm.createServiceWindow()
 	sm.runWindowSizeWatcher()
 	sm.runStdInReader()
 	sm.runRenderer()
@@ -39,16 +42,30 @@ func NewManager() *sessionManager {
 	return sm
 }
 
-func (sm *sessionManager) createServicePane() {
+func (sm *sessionManager) createServiceWindow() {
 	// rows, cols := sm.getSize(PanePositionEnum.FullScreen)
 	rows, cols, _ := pty.Getsize(os.Stdin)
 	s := &StatusSession{cols: cols, rows: rows}
-	p := &Pane{ID: sm.nextSessionID, Session: s}
-	sm.panes = append(sm.panes, p)
-	sm.Select(p)
+	p := &Pane{ID: sm.nextWindowID, Session: s}
+	// sm.panes = append(sm.panes, p)
+	w := NewWindow(&sm.sessionWg, 0)
+	w.AddPane(p)
+	w.Select(p)
+	sm.windows[0] = w
+	sm.nextWindowID++
+	sm.Select(w)
 }
 
-func (sm *sessionManager) Create(windowId int, position PanePosition, argv []string) (*Pane, error) {
+// func (sm *sessionManager) createServicePane() {
+// 	// rows, cols := sm.getSize(PanePositionEnum.FullScreen)
+// 	rows, cols, _ := pty.Getsize(os.Stdin)
+// 	s := &StatusSession{cols: cols, rows: rows}
+// 	p := &Pane{ID: sm.nextSessionID, Session: s}
+// 	sm.panes = append(sm.panes, p)
+// 	sm.Select(p)
+// }
+
+func (sm *sessionManager) Create(windowId int, position PanePosition, argv []string) (*Window, error) {
 	// TODO: Move pane creation logic to window.go
 	// p, err := NewPane(&sm.sessionWg, sm.nextSessionID, argv)
 	// if err != nil {
@@ -75,20 +92,21 @@ func (sm *sessionManager) Create(windowId int, position PanePosition, argv []str
 	}
 	p, _ := w.CreatePane(position, argv)
 	w.AddPane(p)
+	w.Select(p)
 
-	return p, nil
+	return w, nil
 }
 
-func (sm *sessionManager) Select(p *Pane) {
-	if ss, ok := p.Session.(*StatusSession); ok {
+func (sm *sessionManager) Select(w *Window) {
+	if ss, ok := w.focusedPane.Session.(*StatusSession); ok {
 		sessionInfo := SessionInfo{
-			sessionCount: len(sm.panes) - 1,
+			sessionCount: len(sm.windows) - 1,
 		}
 		ss.Refresh(sessionInfo) // exclude status session
 	}
 
 	sm.mu.Lock()
-	sm.focusedPane = p
+	sm.focusedWindow = w
 	sm.mu.Unlock()
 
 	sm.render(true)
@@ -142,9 +160,9 @@ func (sm *sessionManager) runWindowSizeWatcher() {
 			}
 
 			sm.mu.Lock()
-			focused := sm.focusedPane
+			focused := sm.focusedWindow
 			sm.mu.Unlock()
-			focused.Session.Invalidate()
+			// focused.focusedPane.Session.Invalidate()
 			focused.Render()
 		}
 	}()
@@ -172,40 +190,41 @@ func (sm *sessionManager) runRenderer() {
 
 func (sm *sessionManager) render(shouldInvalidate bool) {
 	sm.mu.Lock()
-	p := sm.focusedPane
+	w := sm.focusedWindow
 	sm.mu.Unlock()
-	// Clears the previous screen of the session.
-	if shouldInvalidate {
-		p.Session.Invalidate()
-	}
+	w.Render()
+	// // Clears the previous screen of the session.
+	// if shouldInvalidate {
+	// 	w.focusedPane.Session.Invalidate()
+	// }
 
-	p.Render()
+	// w.focusedPane.Render()
 }
 
 func (sm *sessionManager) next() {
-	if len(sm.panes) < 1 {
+	if len(sm.windows) < 1 {
 		return
 	}
 
 	sm.mu.Lock()
-	activeSession := sm.focusedPane.Session
+	focusedWindow := sm.focusedWindow
 	sm.mu.Unlock()
-	lastSessionID := len(sm.panes) - 1
-	currentSessionID := 0
-	for i := range sm.panes {
-		if sm.panes[i].Session == activeSession {
-			currentSessionID = i + 1
+	lastWindowID := len(sm.windows) - 1
+	currentWindowID := 0
+	for i := range sm.windows {
+		if sm.windows[i] == focusedWindow {
+			currentWindowID = i + 1
 
-			if currentSessionID > lastSessionID {
-				currentSessionID = 0
+			if currentWindowID > lastWindowID {
+				currentWindowID = 0
 			}
 
 			break
 		}
 	}
 
-	pane := sm.panes[currentSessionID]
-	sm.Select(pane)
+	window := sm.windows[currentWindowID]
+	sm.Select(window)
 	sm.uiDirty <- struct{}{}
 }
 
@@ -224,7 +243,8 @@ func (sm *sessionManager) parseStdIn(data []byte) {
 
 	if len(input) > 0 {
 		sm.mu.Lock()
-		sm.focusedPane.Session.Write(input)
+		sm.focusedWindow.focusedPane.Session.Write(input)
+		// sm.focusedPane.Session.Write(input)
 		sm.mu.Unlock()
 	}
 }
@@ -242,28 +262,3 @@ func (sm *sessionManager) handleHotkey(hotKey rune) {
 func (sm *sessionManager) Wait() {
 	sm.sessionWg.Wait()
 }
-
-/*
-func (sm *sessionManager) getSize(position PanePosition) (int, int) {
-	if position != PanePositionEnum.FullScreen {
-		return sm.getSizeSplit()
-	}
-
-	return sm.getSizeFull()
-}
-
-func (sm *sessionManager) getSizeSplit() (int, int) {
-	rows, cols := sm.getSizeFull()
-	return rows, cols / 2
-}
-
-func (sm *sessionManager) getSizeFull() (int, int) {
-	rows, cols, err := pty.Getsize(os.Stdin)
-	if err != nil {
-		// FIXME: This should be saved in logs rather than printed to the console.
-		fmt.Printf("Cannot terminal size %v\n", err)
-	}
-
-	return rows, cols
-}
-*/
